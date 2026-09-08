@@ -3,7 +3,9 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
+from cbomscan.detectors.cert import CertDetector
 from cbomscan.detectors.manifest import ManifestDetector
+from cbomscan.detectors.source import PythonSourceDetector
 from cbomscan.models import Occurrence
 
 
@@ -83,3 +85,5 @@ registry = DetectorRegistry()
 
 # Register built-in detectors
 registry.register(ManifestDetector())
+registry.register(PythonSourceDetector())
+registry.register(CertDetector())
