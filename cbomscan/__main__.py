@@ -1,6 +1,7 @@
 """CLI entry point for CBOMScan."""
 
 import argparse
+from pathlib import Path
 
 from cbomscan.classify import classify
 from cbomscan.export import write_cyclonedx_json, write_markdown_report
@@ -9,6 +10,8 @@ from cbomscan.normalize import normalize
 from cbomscan.recommend import recommend
 from cbomscan.scan import run_detectors, scan_path
 from cbomscan.score import score
+
+DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
 
 def main():
@@ -25,16 +28,22 @@ def main():
         "-f", "--format", choices=["json", "md"], default="json", help="Output format"
     )
     parser.add_argument(
-        "--horizon-year", type=int, default=2030, help="Years until CRQC (default: 2030)"
+        "--horizon-year", type=int, help="Years until CRQC (default: from config.yaml)"
     )
     parser.add_argument(
-        "--migration-years", type=float, default=2.0, help="Migration time in years (default: 2.0)"
+        "--migration-years", type=float, help="Migration time in years (default: from config.yaml)"
     )
     parser.add_argument(
-        "--data-lifetime", type=int, default=10, help="Data lifetime in years (default: 10)"
+        "--data-lifetime", type=int, help="Data lifetime in years (default: from config.yaml)"
     )
     parser.add_argument(
         "--kb", default=str(DEFAULT_KB_PATH), help="Path to knowledge base YAML"
+    )
+    parser.add_argument(
+        "--config", default=str(DEFAULT_CONFIG_PATH), help="Path to config YAML"
+    )
+    parser.add_argument(
+        "--no-validate", action="store_true", help="Skip CBOM schema validation"
     )
 
     args = parser.parse_args()
@@ -65,18 +74,29 @@ def run_scan(args):
     artifacts = normalize(all_findings)
     print(f"Normalized to {len(artifacts)} unique artifacts")
 
-    # CLASSIFY
-    artifacts = classify(artifacts, kb, args.migration_years, args.data_lifetime)
+    # CLASSIFY - use config defaults for migration/lifetime if not provided
+    config_path = Path(args.config)
+    import yaml
+    config = {}
+    if config_path.exists():
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
 
-    # SCORE
-    artifacts = score(artifacts, args.horizon_year)
+    migration_years = args.migration_years or config.get("default_migration_years", 2.0)
+    data_lifetime = args.data_lifetime or config.get("default_data_lifetime_years", 10)
+
+    artifacts = classify(artifacts, kb, migration_years, data_lifetime)
+
+    # SCORE - pass config for Z, X, Y defaults
+    horizon_year = args.horizon_year or config.get("horizon_year", 2030)
+    artifacts = score(artifacts, horizon_year=horizon_year, config_path=config_path)
 
     # RECOMMEND
     artifacts = recommend(artifacts, kb)
 
     # EXPORT
     if args.format == "json":
-        write_cyclonedx_json(artifacts, args.output)
+        write_cyclonedx_json(artifacts, args.output, validate=not args.no_validate)
         print(f"CBOM written to {args.output}")
     else:
         write_markdown_report(artifacts, args.output)

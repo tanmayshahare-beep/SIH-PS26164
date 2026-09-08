@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
+from cbomscan.detectors.manifest import ManifestDetector
 from cbomscan.models import Occurrence
 
 
@@ -79,3 +80,6 @@ class DetectorRegistry:
 
 
 registry = DetectorRegistry()
+
+# Register built-in detectors
+registry.register(ManifestDetector())

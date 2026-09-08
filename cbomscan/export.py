@@ -1,9 +1,22 @@
 """Export stage - serialize to CycloneDX 1.7 CBOM JSON and Markdown."""
 
 import json
+import urllib.request
 from datetime import UTC, datetime
-from hashlib import sha256
-from typing import Any
+
+import jsonschema
+from cyclonedx.model.bom import Bom
+from cyclonedx.model.component import Component, ComponentType
+from cyclonedx.model.crypto import (
+    AlgorithmProperties,
+    CryptoAssetType,
+    CryptoExecutionEnvironment,
+    CryptoFunction,
+    CryptoPrimitive,
+    CryptoProperties,
+)
+from cyclonedx.model.tool import Tool
+from cyclonedx.output.json import JsonV1Dot7
 
 from cbomscan.models import AssetType, CryptoArtifact, Verdict
 
@@ -11,18 +24,51 @@ from cbomscan.models import AssetType, CryptoArtifact, Verdict
 CYCLONEDX_SCHEMA_URL = "https://cyclonedx.org/schema/bom-1.7.schema.json"
 
 
+def _fetch_schema() -> dict | None:
+    """Fetch the CycloneDX 1.7 JSON schema. Returns None if fetch fails."""
+    try:
+        req = urllib.request.Request(
+            CYCLONEDX_SCHEMA_URL,
+            headers={"User-Agent": "CBOMScan/0.1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            return json.load(response)
+    except Exception:
+        return None
+
+
+_CACHED_SCHEMA: dict | None = None
+
+
+def _get_schema() -> dict | None:
+    """Get the CycloneDX schema, caching it."""
+    global _CACHED_SCHEMA
+    if _CACHED_SCHEMA is None:
+        _CACHED_SCHEMA = _fetch_schema()
+    return _CACHED_SCHEMA
+
+
+def validate_cyclonedx(bom_dict: dict) -> None:
+    """Validate a CBOM dict against the CycloneDX 1.7 schema."""
+    schema = _get_schema()
+    if schema is None:
+        # Skip validation if schema can't be fetched
+        return
+    jsonschema.validate(instance=bom_dict, schema=schema)
+
+
 def _bom_ref(artifact: CryptoArtifact) -> str:
     """Generate a bom-ref for the artifact."""
     return f"crypto/{artifact.asset_type.value}/{artifact.id}"
 
 
-def _asset_type_cyclonedx(asset_type: AssetType) -> str:
-    """Map our AssetType to CycloneDX assetType."""
+def _asset_type_cyclonedx(asset_type: AssetType) -> CryptoAssetType:
+    """Map our AssetType to CycloneDX CryptoAssetType."""
     mapping = {
-        AssetType.ALGORITHM: "algorithm",
-        AssetType.CERTIFICATE: "certificate",
-        AssetType.PROTOCOL: "protocol",
-        AssetType.RELATED_MATERIAL: "related-crypto-material",
+        AssetType.ALGORITHM: CryptoAssetType.ALGORITHM,
+        AssetType.CERTIFICATE: CryptoAssetType.CERTIFICATE,
+        AssetType.PROTOCOL: CryptoAssetType.PROTOCOL,
+        AssetType.RELATED_MATERIAL: CryptoAssetType.RELATED_CRYPTO_MATERIAL,
     }
     return mapping[asset_type]
 
@@ -38,36 +84,41 @@ def _verdict_to_nist_quantum_level(verdict: Verdict) -> int:
     return mapping[verdict]
 
 
-def _build_crypto_properties(artifact: CryptoArtifact) -> dict[str, Any]:
-    """Build cryptoProperties dict for CycloneDX."""
-    asset_type = _asset_type_cyclonedx(artifact.asset_type)
-    props = {
-        "assetType": asset_type,
+def _primitive_to_cyclonedx(primitive: str | None) -> CryptoPrimitive:
+    """Map our primitive to CycloneDX CryptoPrimitive."""
+    if not primitive:
+        return CryptoPrimitive.UNKNOWN
+    mapping = {
+        "pke": CryptoPrimitive.PKE,
+        "signature": CryptoPrimitive.SIGNATURE,
+        "key-agree": CryptoPrimitive.KEY_AGREE,
+        "hash": CryptoPrimitive.HASH,
+        "block-cipher": CryptoPrimitive.BLOCK_CIPHER,
+        "stream-cipher": CryptoPrimitive.STREAM_CIPHER,
+        "mac": CryptoPrimitive.MAC,
+        "kdf": CryptoPrimitive.KDF,
     }
+    return mapping.get(primitive, CryptoPrimitive.UNKNOWN)
 
-    if asset_type == "algorithm":
-        props["algorithmProperties"] = {
-            "primitive": artifact.primitive or "unknown",
-            "parameterSetIdentifier": str(artifact.key_size) if artifact.key_size else "unknown",
-            "executionEnvironment": "software-plain-ram",
-            "cryptoFunctions": _infer_crypto_functions(artifact),
-            "classicalSecurityLevel": _estimate_classical_security(artifact),
-            "nistQuantumSecurityLevel": _verdict_to_nist_quantum_level(artifact.verdict),
-        }
-        # Add OID if known
-        oid = _algorithm_oid(artifact.name)
-        if oid:
-            props["oid"] = oid
 
-    elif asset_type == "certificate":
-        props["certificateProperties"] = {
-            "subject": artifact.name,
-            "signatureAlgorithm": artifact.name,
-            "keyAlgorithm": artifact.primitive or "unknown",
-            "keySize": artifact.key_size or 0,
-        }
-
-    return props
+def _crypto_functions_to_cyclonedx(functions: list[str]) -> list[CryptoFunction]:
+    """Map our crypto functions to CycloneDX CryptoFunction."""
+    mapping = {
+        "encrypt": CryptoFunction.ENCRYPT,
+        "decrypt": CryptoFunction.DECRYPT,
+        "sign": CryptoFunction.SIGN,
+        "verify": CryptoFunction.VERIFY,
+        "derive-bits": CryptoFunction.KEYDERIVE,
+        "derive-key": CryptoFunction.KEYDERIVE,
+        "hash": CryptoFunction.DIGEST,
+        "mac-generate": CryptoFunction.TAG,
+        "mac-verify": CryptoFunction.TAG,
+        "kdf": CryptoFunction.KEYDERIVE,
+        "key-wrap": CryptoFunction.ENCAPSULATE,
+        "key-unwrap": CryptoFunction.DECAPSULATE,
+        "random-generation": CryptoFunction.GENERATE,
+    }
+    return [mapping.get(f, CryptoFunction.ENCRYPT) for f in functions]
 
 
 def _infer_crypto_functions(artifact: CryptoArtifact) -> list[str]:
@@ -82,6 +133,8 @@ def _infer_crypto_functions(artifact: CryptoArtifact) -> list[str]:
         "hash": ["hash"],
         "block-cipher": ["encrypt", "decrypt"],
         "stream-cipher": ["encrypt", "decrypt"],
+        "mac": ["mac-generate", "mac-verify"],
+        "kdf": ["kdf"],
     }
     return mapping.get(artifact.primitive, [])
 
@@ -90,7 +143,7 @@ def _estimate_classical_security(artifact: CryptoArtifact) -> int:
     """Estimate classical security level in bits."""
     if artifact.key_size:
         if artifact.primitive in ("pke", "signature", "key-agree"):
-            # RSA/DH: ~log2(key_size) - rough estimate
+            # RSA/DH: rough estimate based on key size
             if artifact.key_size >= 3072:
                 return 128
             elif artifact.key_size >= 2048:
@@ -125,61 +178,82 @@ def _algorithm_oid(name: str) -> str | None:
     return oids.get(name)
 
 
-def _build_evidence(artifact: CryptoArtifact) -> dict[str, Any]:
-    """Build evidence.occurrences for CycloneDX."""
-    occurrences = []
-    for occ in artifact.occurrences:
-        occurrences.append({
-            "location": occ.file,
-            "line": occ.line,
-            "symbol": occ.symbol,
-        })
-    return {"occurrences": occurrences} if occurrences else {}
+def _build_cyclonedx_component(artifact: CryptoArtifact) -> Component:
+    """Build a CycloneDX Component for a CryptoArtifact."""
+    asset_type = _asset_type_cyclonedx(artifact.asset_type)
+
+    crypto_props = CryptoProperties(asset_type=asset_type)
+
+    if asset_type == CryptoAssetType.ALGORITHM:
+        algo_props = AlgorithmProperties(
+            primitive=_primitive_to_cyclonedx(artifact.primitive),
+            parameter_set_identifier=str(artifact.key_size) if artifact.key_size else "unknown",
+            execution_environment=CryptoExecutionEnvironment.SOFTWARE_PLAIN_RAM,
+            crypto_functions=_crypto_functions_to_cyclonedx(_infer_crypto_functions(artifact)),
+            classical_security_level=_estimate_classical_security(artifact),
+            nist_quantum_security_level=_verdict_to_nist_quantum_level(artifact.verdict),
+        )
+        crypto_props.algorithm_properties = algo_props
+
+        oid = _algorithm_oid(artifact.name)
+        if oid:
+            crypto_props.oid = oid
+
+    # Build evidence occurrences
+    from cyclonedx.model.component_evidence import ComponentEvidence
+    from cyclonedx.model.component_evidence import Occurrence as CycloneDxOccurrence
+
+    evidence = None
+    if artifact.occurrences:
+        cyclo_occurrences = []
+        for occ in artifact.occurrences:
+            cyclo_occurrences.append(
+                CycloneDxOccurrence(
+                    location=occ.file,
+                    line=occ.line,
+                    symbol=occ.symbol,
+                )
+            )
+        evidence = ComponentEvidence(occurrences=cyclo_occurrences)
+
+    component = Component(
+        type=ComponentType.CRYPTOGRAPHIC_ASSET,
+        name=artifact.name,
+        bom_ref=_bom_ref(artifact),
+        crypto_properties=crypto_props,
+        evidence=evidence,
+    )
+    return component
 
 
-def to_cyclonedx(artifacts: list[CryptoArtifact], tool_name: str = "CBOMScan") -> dict[str, Any]:
-    """Convert artifacts to CycloneDX 1.7 CBOM dict."""
-    components = []
-    for artifact in artifacts:
-        component = {
-            "type": "cryptographic-asset",
-            "name": artifact.name,
-            "bom-ref": _bom_ref(artifact),
-            "cryptoProperties": _build_crypto_properties(artifact),
-        }
-        evidence = _build_evidence(artifact)
-        if evidence:
-            component["evidence"] = evidence
-        components.append(component)
+def to_cyclonedx(artifacts: list[CryptoArtifact], tool_name: str = "CBOMScan") -> Bom:
+    """Convert artifacts to CycloneDX 1.7 BOM object."""
+    components = [_build_cyclonedx_component(a) for a in artifacts]
 
-    bom = {
-        "bomFormat": "CycloneDX",
-        "specVersion": "1.7",
-        "serialNumber": f"urn:uuid:{sha256(str(datetime.now()).encode()).hexdigest()[:36]}",
-        "version": 1,
-        "metadata": {
-            "timestamp": datetime.now(UTC).isoformat(),
-            "tools": [
-                {
-                    "name": tool_name,
-                    "version": "0.1.0",
-                }
-            ],
-            "component": {
-                "type": "application",
-                "name": "scanned-repository",
-            },
-        },
-        "components": components,
-    }
+    bom = Bom()
+    bom.components = components
+    bom.metadata.tools = [Tool(name=tool_name, version="0.1.0")]
+    bom.metadata.component = Component(type=ComponentType.APPLICATION, name="scanned-repository")
     return bom
 
 
-def write_cyclonedx_json(artifacts: list[CryptoArtifact], output_path: str) -> None:
-    """Write CBOM as JSON to file."""
+def write_cyclonedx_json(
+    artifacts: list[CryptoArtifact],
+    output_path: str,
+    validate: bool = True,
+) -> None:
+    """Write CBOM as JSON to file using cyclonedx-python-lib."""
     bom = to_cyclonedx(artifacts)
+    output = JsonV1Dot7(bom)
+    json_str = output.output_as_string(indent=2)
+
+    if validate:
+        # Parse back to dict for validation
+        bom_dict = json.loads(json_str)
+        validate_cyclonedx(bom_dict)
+
     with open(output_path, "w") as f:
-        json.dump(bom, f, indent=2)
+        f.write(json_str)
 
 
 def write_markdown_report(artifacts: list[CryptoArtifact], output_path: str) -> None:

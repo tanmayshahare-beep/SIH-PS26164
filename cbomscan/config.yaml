@@ -1,0 +1,7 @@
+# CBOMScan configuration
+# Z = years until CRQC (configurable horizon, default 2030)
+horizon_year: 2030
+# X = migration time in years (default 2.0)
+default_migration_years: 2.0
+# Y = data lifetime in years (default 10)
+default_data_lifetime_years: 10

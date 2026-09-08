@@ -1,0 +1,2 @@
+cryptography>=41.0
+rsa>=4.9
