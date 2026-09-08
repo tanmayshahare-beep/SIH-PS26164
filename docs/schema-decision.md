@@ -1,0 +1,5 @@
+# CBOM Schema Decision
+
+**Decision:** Use `cyclonedx-python-lib` (v11.12.0) for CBOM emission.
+
+**Rationale:** The library fully supports CycloneDX 1.7 `cryptographic-asset` components with `cryptoProperties`, including `algorithmProperties`, `certificateProperties`, `protocolProperties`, and `relatedCryptoMaterialProperties`. The spike successfully constructed a `Component` with `type=ComponentType.CRYPTOGRAPHIC_ASSET`, populated `crypto_properties` with `CryptoProperties(asset_type=CryptoAssetType.ALGORITHM, algorithm_properties=AlgorithmProperties(...))`, and serialized a valid CBOM via `JsonV1Dot7` output. The emitted JSON matches the required structure from the Output Contract: `"type": "cryptographic-asset"`, `"cryptoProperties"` with `"assetType": "algorithm"`, `"algorithmProperties"` containing `primitive`, `parameterSetIdentifier`, `executionEnvironment`, `cryptoFunctions`, `classicalSecurityLevel`, `nistQuantumSecurityLevel`, and optional `oid`. This avoids manual dict construction and jsonschema validation overhead. The library handles schema compliance internally and emits the `$schema` reference to the official CycloneDX 1.7 schema.

@@ -1,0 +1,184 @@
+- algorithm: "RSA"
+  verdict: "vulnerable"
+  reason: "Shor's algorithm breaks integer factorization"
+  replacement: "ML-KEM (FIPS 203) for KEX; ML-DSA (FIPS 204) for signatures"
+  primitive: "pke"
+  maturity: "nist-standardized"
+  latency_note: "ML-KEM-768: ~1.2ms keygen, ~1.5ms encap/decap; ML-DSA-65: ~0.5ms sign, ~0.3ms verify"
+  hybrid_ok: true
+
+- algorithm: "DH"
+  verdict: "vulnerable"
+  reason: "Shor's algorithm breaks discrete logarithm"
+  replacement: "ML-KEM (FIPS 203)"
+  primitive: "key-agree"
+  maturity: "nist-standardized"
+  latency_note: "ML-KEM-768: ~1.2ms keygen, ~1.5ms encap/decap"
+  hybrid_ok: true
+
+- algorithm: "ECC"
+  verdict: "vulnerable"
+  reason: "Shor's algorithm breaks elliptic curve discrete logarithm"
+  replacement: "ML-KEM (FIPS 203) for KEX; ML-DSA (FIPS 204) for signatures"
+  primitive: "key-agree"
+  maturity: "nist-standardized"
+  latency_note: "ML-KEM-768: ~1.2ms keygen; ML-DSA-65: ~0.5ms sign"
+  hybrid_ok: true
+
+- algorithm: "ECDSA"
+  verdict: "vulnerable"
+  reason: "Shor's algorithm breaks elliptic curve discrete logarithm"
+  replacement: "ML-DSA (FIPS 204)"
+  primitive: "signature"
+  maturity: "nist-standardized"
+  latency_note: "ML-DSA-65: ~0.5ms sign, ~0.3ms verify; sig size ~2.4KB"
+  hybrid_ok: true
+
+- algorithm: "ECDH"
+  verdict: "vulnerable"
+  reason: "Shor's algorithm breaks elliptic curve discrete logarithm"
+  replacement: "ML-KEM (FIPS 203)"
+  primitive: "key-agree"
+  maturity: "nist-standardized"
+  latency_note: "ML-KEM-768: ~1.2ms keygen, ~1.5ms encap/decap"
+  hybrid_ok: true
+
+- algorithm: "Ed25519"
+  verdict: "vulnerable"
+  reason: "Shor's algorithm breaks elliptic curve discrete logarithm"
+  replacement: "ML-DSA (FIPS 204)"
+  primitive: "signature"
+  maturity: "nist-standardized"
+  latency_note: "ML-DSA-65: ~0.5ms sign, ~0.3ms verify; sig size ~2.4KB"
+  hybrid_ok: true
+
+- algorithm: "X25519"
+  verdict: "vulnerable"
+  reason: "Shor's algorithm breaks elliptic curve discrete logarithm"
+  replacement: "ML-KEM (FIPS 203); hybrid X25519+ML-KEM during transition"
+  primitive: "key-agree"
+  maturity: "nist-standardized"
+  latency_note: "ML-KEM-768: ~1.2ms keygen; hybrid adds ~32 bytes + X25519 cost"
+  hybrid_ok: true
+
+- algorithm: "DSA"
+  verdict: "vulnerable"
+  reason: "Shor's algorithm breaks discrete logarithm"
+  replacement: "ML-DSA (FIPS 204)"
+  primitive: "signature"
+  maturity: "nist-standardized"
+  latency_note: "ML-DSA-65: ~0.5ms sign, ~0.3ms verify"
+  hybrid_ok: false
+
+- algorithm: "AES-128"
+  verdict: "weakened"
+  reason: "Grover's algorithm halves effective security to 64 bits"
+  replacement: "AES-256"
+  primitive: "block-cipher"
+  key_size: 128
+  maturity: "nist-standardized"
+  latency_note: "AES-256: ~1.4x AES-128 latency; negligible on modern CPUs with AES-NI"
+  hybrid_ok: false
+
+- algorithm: "AES-256"
+  verdict: "safe"
+  reason: "Grover's algorithm leaves 128-bit effective security"
+  replacement: "keep"
+  primitive: "block-cipher"
+  key_size: 256
+  maturity: "nist-standardized"
+  latency_note: "Hardware accelerated via AES-NI; ~0.5 cycles/byte"
+  hybrid_ok: false
+
+- algorithm: "ChaCha20"
+  verdict: "safe"
+  reason: "Grover's algorithm leaves 128-bit effective security"
+  replacement: "keep"
+  primitive: "stream-cipher"
+  key_size: 256
+  maturity: "nist-standardized"
+  latency_note: "Software-friendly; ~1.5 cycles/byte without hardware acceleration"
+  hybrid_ok: false
+
+- algorithm: "SHA-256"
+  verdict: "safe"
+  reason: "Grover's algorithm leaves 128-bit effective security"
+  replacement: "keep"
+  primitive: "hash"
+  maturity: "nist-standardized"
+  latency_note: "Hardware accelerated via SHA-NI; ~3 cycles/byte"
+  hybrid_ok: false
+
+- algorithm: "SHA-384"
+  verdict: "safe"
+  reason: "Grover's algorithm leaves 192-bit effective security"
+  replacement: "keep"
+  primitive: "hash"
+  maturity: "nist-standardized"
+  latency_note: "Hardware accelerated; ~5 cycles/byte"
+  hybrid_ok: false
+
+- algorithm: "SHA-512"
+  verdict: "safe"
+  reason: "Grover's algorithm leaves 256-bit effective security"
+  replacement: "keep"
+  primitive: "hash"
+  maturity: "nist-standardized"
+  latency_note: "Hardware accelerated; ~5 cycles/byte"
+  hybrid_ok: false
+
+- algorithm: "SHA-3"
+  verdict: "safe"
+  reason: "Grover's algorithm leaves 128/256-bit effective security (SHA3-256/512)"
+  replacement: "keep"
+  primitive: "hash"
+  maturity: "nist-standardized"
+  latency_note: "Software implementation ~10-15 cycles/byte; no widespread HW acceleration yet"
+  hybrid_ok: false
+
+- algorithm: "SHA-1"
+  verdict: "broken"
+  reason: "Pre-quantum collision attacks (SHAttered, chosen-prefix)"
+  replacement: "SHA-256 / SHA-3"
+  primitive: "hash"
+  maturity: "deprecated"
+  latency_note: "Do not use; migrate immediately"
+  hybrid_ok: false
+
+- algorithm: "MD5"
+  verdict: "broken"
+  reason: "Pre-quantum collision attacks"
+  replacement: "SHA-256 / SHA-3"
+  primitive: "hash"
+  maturity: "deprecated"
+  latency_note: "Do not use; migrate immediately"
+  hybrid_ok: false
+
+- algorithm: "3DES"
+  verdict: "broken"
+  reason: "Pre-quantum broken (Sweet32, meet-in-the-middle)"
+  replacement: "AES-256"
+  primitive: "block-cipher"
+  key_size: 168
+  maturity: "deprecated"
+  latency_note: "Do not use; migrate immediately"
+  hybrid_ok: false
+
+- algorithm: "DES"
+  verdict: "broken"
+  reason: "Pre-quantum broken (brute force)"
+  replacement: "AES-256"
+  primitive: "block-cipher"
+  key_size: 56
+  maturity: "deprecated"
+  latency_note: "Do not use; migrate immediately"
+  hybrid_ok: false
+
+- algorithm: "RC4"
+  verdict: "broken"
+  reason: "Pre-quantum broken (biases, key recovery)"
+  replacement: "AES-256 / ChaCha20"
+  primitive: "stream-cipher"
+  maturity: "deprecated"
+  latency_note: "Do not use; migrate immediately"
+  hybrid_ok: false
