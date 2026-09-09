@@ -6,7 +6,7 @@ import pytest
 
 from cbomscan.detectors import registry
 from cbomscan.detectors.cert import CertDetector
-from cbomscan.detectors.source import PythonSourceDetector
+from cbomscan.detectors.source import PythonSourceDetector, JavaScriptSourceDetector
 
 
 class TestPythonSourceDetector:
@@ -197,6 +197,250 @@ class TestCertDetector:
         # The signature algorithm should be SHA256WithRSA or similar
         cert_finding = cert_findings[0]
         assert cert_finding.name in ("SHA256WithRSA", "SHA-256", "RSA")
+
+
+class TestJavaScriptSourceDetector:
+    """Tests for JavaScriptSourceDetector."""
+
+    def test_detector_registered(self):
+        """Test that JavaScriptSourceDetector is registered."""
+        detector = registry.get("javascript_source")
+        assert detector is not None
+        assert isinstance(detector, JavaScriptSourceDetector)
+
+    def test_supported_extensions(self):
+        """Test supported extensions."""
+        detector = JavaScriptSourceDetector()
+        assert ".js" in detector.supported_extensions
+        assert ".ts" in detector.supported_extensions
+        assert ".jsx" in detector.supported_extensions
+        assert ".tsx" in detector.supported_extensions
+
+    def test_detect_node_crypto_generate_rsa(self):
+        """Test detection of Node.js crypto.generateKeyPair for RSA."""
+        detector = JavaScriptSourceDetector()
+        content = """
+const crypto = require('crypto');
+const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+});
+"""
+        findings = detector.detect("test.js", content)
+        rsa_findings = [f for f in findings if f.name == "RSA"]
+        assert len(rsa_findings) >= 1
+        assert rsa_findings[0].confidence == "confirmed"
+        assert rsa_findings[0].primitive == "pke"
+
+    def test_detect_node_crypto_generate_ec(self):
+        """Test detection of Node.js crypto.generateKeyPair for EC."""
+        detector = JavaScriptSourceDetector()
+        content = """
+const crypto = require('crypto');
+const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', {
+    namedCurve: 'secp256r1',
+});
+"""
+        findings = detector.detect("test.js", content)
+        ec_findings = [f for f in findings if f.name == "ECDSA"]
+        assert len(ec_findings) >= 1
+        assert ec_findings[0].confidence == "confirmed"
+        assert ec_findings[0].primitive == "signature"
+
+    def test_detect_node_crypto_generate_ed25519(self):
+        """Test detection of Node.js crypto.generateKeyPair for Ed25519."""
+        detector = JavaScriptSourceDetector()
+        content = """
+const crypto = require('crypto');
+const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+"""
+        findings = detector.detect("test.js", content)
+        ed_findings = [f for f in findings if f.name == "Ed25519"]
+        assert len(ed_findings) >= 1
+        assert ed_findings[0].confidence == "confirmed"
+        assert ed_findings[0].primitive == "signature"
+
+    def test_detect_node_crypto_create_sign(self):
+        """Test detection of Node.js crypto.createSign."""
+        detector = JavaScriptSourceDetector()
+        content = """
+const crypto = require('crypto');
+const sign = crypto.createSign('RSA-SHA256');
+"""
+        findings = detector.detect("test.js", content)
+        rsa_findings = [f for f in findings if f.name == "RSA" and f.primitive == "signature"]
+        assert len(rsa_findings) >= 1
+        assert rsa_findings[0].confidence == "confirmed"
+
+    def test_detect_node_crypto_create_ecdh(self):
+        """Test detection of Node.js crypto.createECDH."""
+        detector = JavaScriptSourceDetector()
+        content = """
+const crypto = require('crypto');
+const ecdh = crypto.createECDH('secp256r1');
+"""
+        findings = detector.detect("test.js", content)
+        ecdh_findings = [f for f in findings if f.name == "ECDH"]
+        assert len(ecdh_findings) >= 1
+        assert ecdh_findings[0].confidence == "confirmed"
+        assert ecdh_findings[0].primitive == "key-agree"
+
+    def test_detect_web_crypto_ecdsa(self):
+        """Test detection of Web Crypto API ECDSA."""
+        detector = JavaScriptSourceDetector()
+        content = """
+const { subtle } = require('crypto').webcrypto;
+const keyPair = await subtle.generateKey(
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    true,
+    ['sign', 'verify']
+);
+"""
+        findings = detector.detect("test.js", content)
+        ecdsa_findings = [f for f in findings if f.name == "ECDSA"]
+        assert len(ecdsa_findings) >= 1
+        assert ecdsa_findings[0].confidence == "confirmed"
+        assert ecdsa_findings[0].primitive == "signature"
+
+    def test_detect_web_crypto_rsa_oaep(self):
+        """Test detection of Web Crypto API RSA-OAEP."""
+        detector = JavaScriptSourceDetector()
+        content = """
+const { subtle } = require('crypto').webcrypto;
+const keyPair = await subtle.generateKey(
+    { name: 'RSA-OAEP', modulusLength: 2048 },
+    true,
+    ['encrypt', 'decrypt']
+);
+"""
+        findings = detector.detect("test.js", content)
+        rsa_findings = [f for f in findings if f.name == "RSA" and f.primitive == "pke"]
+        assert len(rsa_findings) >= 1
+        assert rsa_findings[0].confidence == "confirmed"
+
+    def test_detect_web_crypto_sign(self):
+        """Test detection of Web Crypto API sign."""
+        detector = JavaScriptSourceDetector()
+        content = """
+const { subtle } = require('crypto').webcrypto;
+const signature = await subtle.sign(
+    { name: 'ECDSA', hash: 'SHA-256' },
+    privateKey,
+    data
+);
+"""
+        findings = detector.detect("test.js", content)
+        ecdsa_findings = [f for f in findings if f.name == "ECDSA" and f.primitive == "signature"]
+        assert len(ecdsa_findings) >= 1
+        assert ecdsa_findings[0].confidence == "confirmed"
+
+    def test_detect_web_crypto_verify(self):
+        """Test detection of Web Crypto API verify."""
+        detector = JavaScriptSourceDetector()
+        content = """
+const { subtle } = require('crypto').webcrypto;
+const result = await subtle.verify(
+    { name: 'ECDSA', hash: 'SHA-256' },
+    publicKey,
+    signature,
+    data
+);
+"""
+        findings = detector.detect("test.js", content)
+        ecdsa_findings = [f for f in findings if f.name == "ECDSA" and f.primitive == "signature"]
+        assert len(ecdsa_findings) >= 1
+        assert ecdsa_findings[0].confidence == "confirmed"
+
+    def test_detect_jwt_rs256(self):
+        """Test detection of jsonwebtoken RS256 algorithm."""
+        detector = JavaScriptSourceDetector()
+        content = """
+const jwt = require('jsonwebtoken');
+const token = jwt.sign(payload, privateKey, { algorithm: 'RS256' });
+"""
+        findings = detector.detect("test.js", content)
+        rsa_findings = [f for f in findings if f.name == "RSA" and f.primitive == "signature"]
+        assert len(rsa_findings) >= 1
+        assert rsa_findings[0].confidence == "confirmed"
+
+    def test_detect_jwt_es256(self):
+        """Test detection of jsonwebtoken ES256 algorithm."""
+        detector = JavaScriptSourceDetector()
+        content = """
+const jwt = require('jsonwebtoken');
+const token = jwt.sign(payload, privateKey, { algorithm: 'ES256' });
+"""
+        findings = detector.detect("test.js", content)
+        ecdsa_findings = [f for f in findings if f.name == "ECDSA"]
+        assert len(ecdsa_findings) >= 1
+        assert ecdsa_findings[0].confidence == "confirmed"
+
+    def test_detect_jwt_hs256(self):
+        """Test detection of jsonwebtoken HS256 algorithm."""
+        detector = JavaScriptSourceDetector()
+        content = """
+const jwt = require('jsonwebtoken');
+const token = jwt.sign(payload, secret, { algorithm: 'HS256' });
+"""
+        findings = detector.detect("test.js", content)
+        hmac_findings = [f for f in findings if f.name == "HMAC"]
+        assert len(hmac_findings) >= 1
+        assert hmac_findings[0].confidence == "confirmed"
+
+    def test_detect_import_statement(self):
+        """Test detection with ES module imports."""
+        detector = JavaScriptSourceDetector()
+        content = """
+import jwt from 'jsonwebtoken';
+const token = jwt.sign(payload, privateKey, { algorithm: 'RS256' });
+"""
+        findings = detector.detect("test.js", content)
+        rsa_findings = [f for f in findings if f.name == "RSA" and f.primitive == "signature"]
+        assert len(rsa_findings) >= 1
+        assert rsa_findings[0].confidence == "confirmed"
+
+    def test_detect_typescript(self):
+        """Test detection in TypeScript files."""
+        detector = JavaScriptSourceDetector()
+        content = """
+import jwt from 'jsonwebtoken';
+const token: string = jwt.sign(payload, privateKey, { algorithm: 'RS256' });
+"""
+        findings = detector.detect("test.ts", content)
+        rsa_findings = [f for f in findings if f.name == "RSA" and f.primitive == "signature"]
+        assert len(rsa_findings) >= 1
+        assert rsa_findings[0].confidence == "confirmed"
+
+
+class TestManifestDetectorJS:
+    """Tests for ManifestDetector with package.json."""
+
+    def test_detect_package_json_crypto_libs(self):
+        """Test detection of crypto libraries in package.json."""
+        from cbomscan.detectors.manifest import ManifestDetector
+        detector = ManifestDetector()
+        content = """
+{
+  "dependencies": {
+    "jsonwebtoken": "^9.0.0",
+    "node-forge": "^1.3.0",
+    "elliptic": "^6.5.0"
+  }
+}
+"""
+        findings = detector.detect("package.json", content)
+        names = {f.name for f in findings}
+        assert "RSA" in names
+        assert "ECDSA" in names
+        assert "HMAC" in names
+
+    def test_detect_package_json_confidence_inferred(self):
+        """Test that package.json findings have inferred confidence."""
+        from cbomscan.detectors.manifest import ManifestDetector
+        detector = ManifestDetector()
+        content = '{"dependencies": {"jsonwebtoken": "^9.0.0"}}'
+        findings = detector.detect("package.json", content)
+        for f in findings:
+            assert f.confidence == "inferred"
 
 
 if __name__ == "__main__":
