@@ -13,6 +13,7 @@
 - **CycloneDX 1.7 CBOM Export** — Standards-compliant JSON output with schema validation
 - **Markdown Reports** — Human-readable summaries with risk categorization and dedicated "Requires Manual Review" section
 - **Confidence Model** — Every finding carries `confirmed` | `inferred` | `flagged` confidence
+- **Interactive GUI** — React + Vite + TypeScript dashboard with artifact table, risk charts (Recharts), and live **Mosca Z-Slider** for real-time quantum risk recalculation
 
 ## Quick Start
 
@@ -78,6 +79,26 @@ options:
   --config CONFIG       Path to config YAML
   --no-validate         Skip CBOM schema validation
 ```
+
+### GUI Usage
+
+```bash
+# Terminal 1: Start the API server
+python -m cbomscan.api_server  # Runs on http://localhost:8000
+
+# Terminal 2: Start the frontend dev server
+cd frontend && npm run dev     # Runs on http://localhost:5173 (proxies /api to :8000)
+```
+
+Then open http://localhost:5173 in your browser:
+
+1. **Scan Form** — Enter a local repository path and click "Scan Repository"
+2. **Results Dashboard** — View:
+   - **Summary badges** — Total artifacts, by verdict, by confidence, at-risk count
+   - **Mosca Z-Slider** — Drag the CRQC year (Z) to recompute X + Y > Z live; updates table + charts instantly
+   - **Risk Charts** — Verdict pie, Confidence pie, At-risk stacked bar, Criticality × Verdict heatmap
+   - **Artifact Table** — Filterable/sortable: name, type, verdict (color-coded), confidence, risk flag, criticality, occurrences, recommendation
+   - **Download Buttons** — CBOM (JSON) and Markdown Report
 
 ## Configuration
 
@@ -225,6 +246,7 @@ All 42 tests passing (Python, JS/TS, Cert, Manifest, E2E, Knowledge Base).
 ```
 cbomscan/
 ├── __main__.py              # CLI entry point
+├── api_server.py            # FastAPI server for GUI
 ├── models.py                # CryptoArtifact, Verdict, Confidence, AssetType
 ├── scan.py                  # File discovery & detector dispatch
 ├── detectors/
@@ -241,6 +263,16 @@ cbomscan/
 ├── knowledge_base.py        # KB loader
 ├── knowledge_base.yaml      # Algorithm database (~30 entries)
 └── config.yaml              # Default Z, X, Y values
+
+frontend/
+├── src/
+│   ├── components/          # ScanForm, ResultsPage, ArtifactTable, RiskCharts, ZSlider
+│   ├── hooks/useArtifacts.ts # Mosca calculator, filters, sorting
+│   ├── api/client.ts        # API client (scan, download CBOM/report)
+│   └── types/index.ts       # TypeScript interfaces
+├── package.json
+├── vite.config.ts
+└── tsconfig.json
 ```
 
 ## Scope
