@@ -1,13 +1,12 @@
 # CBOMScan
 
-**Cryptographic Bill of Materials Scanner** — A tool that scans Python & JavaScript repositories for cryptographic assets, scores their quantum risk via Mosca's inequality, recommends post-quantum replacements, and exports a standards-compliant CycloneDX 1.7 CBOM.
+**Cryptographic Bill of Materials Scanner** — A tool that scans Python & JavaScript/TypeScript repositories for cryptographic assets, scores their quantum risk via Mosca's inequality, recommends post-quantum replacements, and exports a standards-compliant CycloneDX 1.7 CBOM.
 
 ## Features
 
 - **Manifest Detection** — Parses `requirements.txt`, `pyproject.toml`, `package.json` to identify crypto libraries
-- **Source Detection** — AST-based detection of crypto API calls in Python/JS source (planned)
-- **Certificate Parsing** — X.509 certificate analysis for signature algorithms (planned)
-- **Config Detection** — IaC/Config reference detection for KMS/HSM/TLS (planned)
+- **Source Detection** — AST-based detection of crypto API calls in Python and JavaScript/TypeScript source using tree-sitter
+- **Certificate Parsing** — X.509 certificate analysis for signature algorithms and key parameters
 - **Quantum Risk Scoring** — Applies Mosca's inequality (X + Y > Z) with configurable horizon
 - **PQC Recommendations** — Maps vulnerable algorithms to NIST-standardized replacements (ML-KEM, ML-DSA, SLH-DSA)
 - **CycloneDX 1.7 CBOM Export** — Standards-compliant JSON output with schema validation
@@ -32,7 +31,7 @@ Requires Python 3.11+.
 ### Basic Usage
 
 ```bash
-# Scan a local Python repository
+# Scan a local repository (Python or JavaScript/TypeScript)
 python -m cbomscan scan ./path/to/repo -o cbom.json
 
 # Scan and generate Markdown report
@@ -92,12 +91,41 @@ default_data_lifetime_years: 10 # Y = data lifetime in years
 
 ### knowledge_base.yaml
 
-Contains ~25 algorithm entries with:
+Contains ~30 algorithm entries with:
 - **Verdict**: `vulnerable` | `weakened` | `broken` | `safe`
 - **Replacement**: NIST FIPS PQC algorithm (ML-KEM, ML-DSA, SLH-DSA)
 - **Maturity**: `nist-standardized` | `draft` | `deprecated`
 - **Latency Note**: Performance characteristics
 - **Hybrid OK**: Whether hybrid mode is supported during transition
+
+## Supported Crypto Detection
+
+### Python (`PythonSourceDetector`)
+
+| Library | Algorithms Detected |
+|---|---|
+| `cryptography.hazmat` | RSA, ECDSA, ECDH, Ed25519, X25519, DH, AES, ChaCha20, 3DES, hashes (MD5, SHA-1/2/3, BLAKE2), PBKDF2, HKDF, Scrypt, HMAC |
+| `hashlib` | MD5, SHA-1, SHA-224/256/384/512, SHA3-224/256/384/512, BLAKE2b/s |
+| `ssl` | TLS protocol references |
+
+### JavaScript/TypeScript (`JavaScriptSourceDetector`)
+
+| API | Algorithms Detected |
+|---|---|
+| **Node.js `crypto`** | `generateKeyPair/generateKeyPairSync` (rsa, ec, ed25519, ed448, dh, x25519, x448), `createSign`, `createVerify`, `createECDH`, `createDiffieHellman`, `createHash`, `createHmac`, `pbkdf2`, `scrypt`, `hkdf` |
+| **Web Crypto API** (`crypto.subtle`) | `generateKey` (RSA-OAEP, RSASSA-PKCS1-v1_5, RSA-PSS, ECDSA, ECDH, AES-*, HMAC, HKDF, PBKDF2), `sign`, `verify`, `deriveKey`, `encrypt`, `decrypt`, `wrapKey`, `unwrapKey`, `digest` |
+| **JWT Libraries** (`jsonwebtoken`, `jose`) | Algorithm strings: RS256/384/512→RSA, ES256/385/512→ECDSA, PS256/384/512→RSA-PSS, HS256/384/512→HMAC, EdDSA→Ed25519 |
+
+**Detection approach**: Proximity-based — finds crypto calls and extracts adjacent algorithm string literals in arguments. Emits `confirmed` when algorithm string is present, `inferred` otherwise.
+
+### Manifest Detection (`ManifestDetector`)
+
+**Python**: `cryptography`, `pycryptodome`, `rsa`, `ecdsa`, `pyopenssl`, `pynacl`, `paramiko`
+**JavaScript/TypeScript**: `node-forge`, `elliptic`, `node-rsa`, `tweetnacl`, `jsonwebtoken`, `jose`, `@noble/hashes`, `@noble/secp256k1`, `@noble/ed25519`, `@noble/curves`, `webcrypto`
+
+### Certificates (`CertDetector`)
+
+X.509 PEM/DER parsing — extracts signature algorithm, key parameters, validity period, subject/issuer.
 
 ## Output
 
@@ -126,7 +154,7 @@ Contains ~25 algorithm entries with:
       },
       "evidence": {
         "occurrences": [
-          { "location": "requirements.txt", "line": null, "symbol": null }
+          { "location": "src/auth/tokens.js", "line": 42, "symbol": "jwt.sign" }
         ]
       }
     }
@@ -172,24 +200,28 @@ ruff check cbomscan tests
 mypy cbomscan
 ```
 
+All 42 tests passing (Python, JS/TS, Cert, Manifest, E2E, Knowledge Base).
+
 ## Project Structure
 
 ```
 cbomscan/
-├── __main__.py          # CLI entry point
-├── models.py            # CryptoArtifact, Verdict, Confidence, AssetType
-├── scan.py              # File discovery & detector dispatch
+├── __main__.py              # CLI entry point
+├── models.py                # CryptoArtifact, Verdict, Confidence, AssetType
+├── scan.py                  # File discovery & detector dispatch
 ├── detectors/
-│   ├── __init__.py      # Registry + base classes
-│   └── manifest.py      # ManifestDetector (requirements.txt, pyproject.toml)
-├── normalize.py         # Deduplication
-├── classify.py          # Asset type, verdict, criticality
-├── score.py             # Mosca inequality
-├── recommend.py         # PQC/hybrid recommendations
-├── export.py            # CycloneDX 1.7 + Markdown
-├── knowledge_base.py    # KB loader
-├── knowledge_base.yaml  # Algorithm database
-└── config.yaml          # Default Z, X, Y values
+│   ├── __init__.py          # Registry + base classes
+│   ├── source.py            # PythonSourceDetector + JavaScriptSourceDetector
+│   ├── manifest.py          # ManifestDetector (requirements.txt, pyproject.toml, package.json)
+│   └── cert.py              # CertDetector
+├── normalize.py             # Deduplication
+├── classify.py              # Asset type, verdict, criticality
+├── score.py                 # Mosca inequality
+├── recommend.py             # PQC/hybrid recommendations
+├── export.py                # CycloneDX 1.7 + Markdown
+├── knowledge_base.py        # KB loader
+├── knowledge_base.yaml      # Algorithm database (~30 entries)
+└── config.yaml              # Default Z, X, Y values
 ```
 
 ## Scope
@@ -197,8 +229,9 @@ cbomscan/
 | Artifact Class | Fidelity | Method |
 |---|---|---|
 | Algorithms in dependencies | `inferred` | Manifest parsing |
-| Algorithms in source | `confirmed` | AST + string literal proximity (planned) |
-| Certificates | `confirmed` | X.509 parsing (planned) |
+| Algorithms in Python source | `confirmed` | tree-sitter Python AST + string literal proximity |
+| Algorithms in JS/TS source | `confirmed` | tree-sitter JavaScript AST + string literal proximity |
+| Certificates | `confirmed` | X.509 parsing |
 | Cloud KMS/HSM/TLS refs | `flagged` | IaC/config parsing (planned) |
 | Container images | `flagged` | Dockerfile `FROM` references (planned) |
 
