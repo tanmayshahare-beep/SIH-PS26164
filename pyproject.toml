@@ -20,6 +20,7 @@ dependencies = [
     "uvicorn>=0.23",
     "jsonschema>=4.19",
     "cyclonedx-python-lib>=6.0",
+    "pydantic>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -33,6 +34,10 @@ dev = [
 
 [project.scripts]
 cbomscan = "cbomscan.__main__:main"
+cbomscan-api = "cbomscan.api_server:app"
+
+[tool.setuptools.packages.find]
+exclude = ["fixtures*", "frontend*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
