@@ -45,3 +45,4 @@ class CryptoArtifact:
     migration_years: float | None = None
     recommendation: str | None = None
     notes: str | None = None
+    metadata: dict = field(default_factory=dict)

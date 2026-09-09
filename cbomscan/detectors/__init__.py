@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from cbomscan.detectors.cert import CertDetector
+from cbomscan.detectors.config import ConfigDetector
 from cbomscan.detectors.manifest import ManifestDetector
 from cbomscan.detectors.source import PythonSourceDetector, JavaScriptSourceDetector
 from cbomscan.models import Occurrence
@@ -88,3 +89,4 @@ registry.register(ManifestDetector())
 registry.register(PythonSourceDetector())
 registry.register(JavaScriptSourceDetector())
 registry.register(CertDetector())
+registry.register(ConfigDetector())

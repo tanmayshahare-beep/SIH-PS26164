@@ -24,6 +24,10 @@ def classify(
             # Set primitive from KB if not already set
             if not artifact.primitive:
                 artifact.primitive = kb_entry.get("primitive")
+        else:
+            # No KB entry - for flagged items, don't default to safe
+            # They remain with default verdict (SAFE) but confidence=flagged indicates review needed
+            pass
 
         # Set defaults for lifetime
         if artifact.migration_years is None:

@@ -20,9 +20,12 @@ def _artifact_key(finding: RawFinding) -> str:
 
 
 def _merge_confidence(existing: Confidence, new: Confidence) -> Confidence:
-    """Return the stronger confidence."""
-    order = {Confidence.CONFIRMED: 3, Confidence.INFERRED: 2, Confidence.FLAGGED: 1}
-    return existing if order[existing] >= order[new] else new
+    """Return the stronger confidence. FLAGGED is preserved as it indicates manual review needed."""
+    # If either is FLAGGED, keep FLAGGED (it means manual review required)
+    if existing == Confidence.FLAGGED or new == Confidence.FLAGGED:
+        return Confidence.FLAGGED
+    order = {Confidence.CONFIRMED: 3, Confidence.INFERRED: 2}
+    return existing if order.get(existing, 0) >= order.get(new, 0) else new
 
 
 def normalize(findings: list[RawFinding]) -> list[CryptoArtifact]:
@@ -36,8 +39,12 @@ def normalize(findings: list[RawFinding]) -> list[CryptoArtifact]:
         first = group[0]
         # Merge occurrences
         all_occurrences = []
+        all_metadata = {}
         for f in group:
             all_occurrences.extend(f.occurrences)
+            # Merge metadata (later findings overwrite earlier for same keys)
+            if f.metadata:
+                all_metadata.update(f.metadata)
 
         # Determine strongest confidence
         confidence = Confidence.INFERRED
@@ -53,6 +60,7 @@ def normalize(findings: list[RawFinding]) -> list[CryptoArtifact]:
             curve=first.curve,
             confidence=confidence,
             occurrences=all_occurrences,
+            metadata=all_metadata,
         )
         artifacts.append(artifact)
 

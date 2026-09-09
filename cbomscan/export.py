@@ -274,10 +274,60 @@ def write_markdown_report(artifacts: list[CryptoArtifact], output_path: str) -> 
     for verdict, count in sorted(verdict_counts.items()):
         lines.append(f"- {verdict}: {count}")
 
+    # Count by confidence
     lines.append("")
-    lines.append("## Artifacts")
+    lines.append("## Summary by Confidence")
+    confidence_counts = {}
+    for a in artifacts:
+        confidence_counts[a.confidence.value] = confidence_counts.get(a.confidence.value, 0) + 1
+    for conf, count in sorted(confidence_counts.items()):
+        lines.append(f"- {conf}: {count}")
+
+    # Requires Manual Review section
+    flagged_artifacts = [a for a in artifacts if a.confidence.value == "flagged"]
+    if flagged_artifacts:
+        lines.append("")
+        lines.append("## [WARNING] Requires Manual Review")
+        lines.append(
+            "The following artifacts were detected with `flagged` confidence - "
+            "they reference cryptographic infrastructure (cloud KMS/HSM, TLS config, "
+            "container images) where the algorithm cannot be statically determined. "
+            "Manual review is required to assess quantum readiness."
+        )
+        lines.append("")
+        for artifact in sorted(flagged_artifacts, key=lambda a: a.name):
+            lines.append(f"### {artifact.name} ({artifact.asset_type.value})")
+            lines.append(f"- **ID**: {artifact.id}")
+            lines.append(f"- **Verdict**: {artifact.verdict.value}")
+            lines.append(f"- **Confidence**: {artifact.confidence.value} [FLAGGED]")
+            if artifact.primitive:
+                lines.append(f"- **Primitive**: {artifact.primitive}")
+            if artifact.recommendation:
+                lines.append(f"- **Recommendation**: {artifact.recommendation}")
+            if artifact.notes:
+                lines.append(f"- **Notes**: {artifact.notes}")
+            if artifact.metadata:
+                # Include relevant metadata for flagged items
+                for key, value in artifact.metadata.items():
+                    if key not in ("matched_pattern", "raw_line"):
+                        lines.append(f"- **{key.replace('_', ' ').title()}**: {value}")
+            if artifact.occurrences:
+                lines.append("- **Occurrences**:")
+                for occ in artifact.occurrences:
+                    loc = f"{occ.file}"
+                    if occ.line:
+                        loc += f":{occ.line}"
+                    if occ.symbol:
+                        loc += f" ({occ.symbol})"
+                    lines.append(f"  - {loc}")
+            lines.append("")
+
+    lines.append("## All Artifacts")
 
     for artifact in sorted(artifacts, key=lambda a: (a.verdict.value, a.name)):
+        # Skip flagged artifacts as they're already in the manual review section
+        if artifact.confidence.value == "flagged":
+            continue
         lines.append(f"### {artifact.name} ({artifact.asset_type.value})")
         lines.append(f"- **ID**: {artifact.id}")
         lines.append(f"- **Verdict**: {artifact.verdict.value}")
