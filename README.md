@@ -7,10 +7,11 @@
 - **Manifest Detection** — Parses `requirements.txt`, `pyproject.toml`, `package.json` to identify crypto libraries
 - **Source Detection** — AST-based detection of crypto API calls in Python and JavaScript/TypeScript source using tree-sitter
 - **Certificate Parsing** — X.509 certificate analysis for signature algorithms and key parameters
+- **Config/Infrastructure Detection** — Detects cloud KMS/HSM references (Terraform, K8s, CloudFormation), TLS config (nginx, Apache), and Dockerfile base images with `flagged` confidence for manual review
 - **Quantum Risk Scoring** — Applies Mosca's inequality (X + Y > Z) with configurable horizon
-- **PQC Recommendations** — Maps vulnerable algorithms to NIST-standardized replacements (ML-KEM, ML-DSA, SLH-DSA)
+- **PQC Recommendations** — Maps vulnerable algorithms to NIST-standardized replacements (ML-KEM, ML-DSA, SLH-DSA) with hybrid options and latency notes
 - **CycloneDX 1.7 CBOM Export** — Standards-compliant JSON output with schema validation
-- **Markdown Reports** — Human-readable summaries with risk categorization
+- **Markdown Reports** — Human-readable summaries with risk categorization and dedicated "Requires Manual Review" section
 - **Confidence Model** — Every finding carries `confirmed` | `inferred` | `flagged` confidence
 
 ## Quick Start
@@ -127,6 +128,19 @@ Contains ~30 algorithm entries with:
 
 X.509 PEM/DER parsing — extracts signature algorithm, key parameters, validity period, subject/issuer.
 
+### Config & Infrastructure (`ConfigDetector`)
+
+| Source | Patterns Detected | Confidence |
+|---|---|---|
+| **Terraform** (`.tf`, `.tfvars`) | AWS KMS/ACM/CloudHSM, Azure Key Vault, GCP KMS resource types | `flagged` |
+| **Kubernetes** (`.yaml`, `.yml`) | KMS annotations, secret references, key vault integrations | `flagged` |
+| **CloudFormation** (`.yaml`, `.yml`) | KMS resource types in `Resources` | `flagged` |
+| **nginx** (`.conf`, `nginx.conf`) | `ssl_protocols`, `ssl_ciphers`, `ssl_prefer_server_ciphers`, `ssl_session_cache`, `ssl_session_timeout` — flags weak TLS/ciphers | `flagged` |
+| **Apache** (`.conf`, `httpd.conf`) | `SSLProtocol`, `SSLCipherSuite`, `SSLHonorCipherOrder`, `SSLSessionCache` | `flagged` |
+| **Dockerfile** | `FROM` base images | `flagged` |
+
+All config findings emit `flagged` confidence with note: *"algorithm not statically determinable, manual review required"*
+
 ## Output
 
 ### CycloneDX 1.7 CBOM (JSON)
@@ -166,10 +180,14 @@ X.509 PEM/DER parsing — extracts signature algorithm, key parameters, validity
 - `nistQuantumSecurityLevel: 1` = weakened by Grover's
 - `nistQuantumSecurityLevel: 3` = quantum-safe
 
+Flagged artifacts (cloud KMS, TLS config, container images) are exported as `protocol` or `related-crypto-material` asset types with evidence marking them for manual review.
+
 ### Markdown Report
 
 Human-readable summary with:
 - Verdict counts (vulnerable/weakened/broken/safe)
+- Confidence counts (confirmed/inferred/flagged)
+- **⚠️ Requires Manual Review** section for all `flagged` artifacts with metadata
 - Per-artifact details: primitive, key size, recommendation, Mosca score, occurrences
 
 ## Architecture
@@ -213,7 +231,8 @@ cbomscan/
 │   ├── __init__.py          # Registry + base classes
 │   ├── source.py            # PythonSourceDetector + JavaScriptSourceDetector
 │   ├── manifest.py          # ManifestDetector (requirements.txt, pyproject.toml, package.json)
-│   └── cert.py              # CertDetector
+│   ├── cert.py              # CertDetector
+│   └── config.py            # ConfigDetector (Terraform, K8s, CF, nginx, Apache, Dockerfile)
 ├── normalize.py             # Deduplication
 ├── classify.py              # Asset type, verdict, criticality
 ├── score.py                 # Mosca inequality
@@ -232,8 +251,8 @@ cbomscan/
 | Algorithms in Python source | `confirmed` | tree-sitter Python AST + string literal proximity |
 | Algorithms in JS/TS source | `confirmed` | tree-sitter JavaScript AST + string literal proximity |
 | Certificates | `confirmed` | X.509 parsing |
-| Cloud KMS/HSM/TLS refs | `flagged` | IaC/config parsing (planned) |
-| Container images | `flagged` | Dockerfile `FROM` references (planned) |
+| Cloud KMS/HSM/TLS refs | `flagged` | IaC/config parsing (Terraform, K8s, CF, nginx, Apache) |
+| Container images | `flagged` | Dockerfile `FROM` references |
 
 **Out of scope**: Deep container layer unpacking, compiled binary analysis, live network probing, languages beyond Python/JS.
 
