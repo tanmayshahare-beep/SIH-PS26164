@@ -44,3 +44,12 @@ cbom.json
 # Node / Frontend (for later)
 node_modules/
 npm-debug.log*
+
+# Electron desktop app
+desktop/node_modules/
+desktop/dist/
+desktop/screenshots/
+desktop/smoke-report.txt
+
+# Distribution ZIP
+release/

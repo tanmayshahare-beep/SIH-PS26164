@@ -34,43 +34,71 @@ Requires Python 3.11+.
 
 ```bash
 # Scan a local repository (Python or JavaScript/TypeScript)
-python -m cbomscan scan ./path/to/repo -o cbom.json
+cbomscan scan ./path/to/repo -o cbom.json
 
 # Scan and generate Markdown report
-python -m cbomscan scan ./path/to/repo -o report.md -f md
+cbomscan scan ./path/to/repo -o report.md -f md
 
 # Custom quantum horizon (years until CRQC)
-python -m cbomscan scan ./repo -o cbom.json --horizon-year 2035
+cbomscan scan ./repo -o cbom.json --horizon-year 2035
 
 # Custom migration time and data lifetime
-python -m cbomscan scan ./repo -o cbom.json --migration-years 3.0 --data-lifetime 20
+cbomscan scan ./repo -o cbom.json --migration-years 3.0 --data-lifetime 20
 
 # Skip schema validation (faster)
-python -m cbomscan scan ./repo -o cbom.json --no-validate
+cbomscan scan ./repo -o cbom.json --no-validate
 ```
 
 ### Command Reference
 
 ```
-usage: cbomscan [-h] [-o OUTPUT] [-f {json,md}] [--horizon-year HORIZON_YEAR]
-                [--migration-years MIGRATION_YEARS] [--data-lifetime DATA_LIFETIME]
-                [--kb KB] [--config CONFIG] [--no-validate]
-                {scan} path
+usage: cbomscan [-h] [-V] <command> ...
 
-Cryptographic Bill of Materials Scanner
+Cryptographic Bill of Materials Scanner - inventory the crypto in a codebase, score it against the quantum threat, and export a CycloneDX 1.7 CBOM.
 
 positional arguments:
-  {scan}                Command to run
-  path                  Path to scan (local directory)
+  <command>
+    scan         Scan a path and write a CBOM or report
+    detectors    List the diagnostic tools and what they find
+    serve        Run the API and web dashboard
+    app          Launch the CBOMScan desktop application
+    wizard       Launch the step-by-step setup wizard
+    version      Print the version
+
+options:
+  -h, --help     show this help message and exit
+  -V, --version  show program's version number and exit
+
+examples:
+  cbomscan scan .                        scan the current directory
+  cbomscan scan ./repo -f md -o out.md   write a Markdown report
+  cbomscan scan ./repo --horizon-year 2035
+  cbomscan detectors                     list the diagnostic tools
+  cbomscan serve                         open the web dashboard
+  cbomscan app                           open the desktop app
+```
+
+```
+usage: cbomscan scan [-h] [-o OUTPUT] [-f {json,md}]
+                     [--horizon-year HORIZON_YEAR]
+                     [--migration-years MIGRATION_YEARS]
+                     [--data-lifetime DATA_LIFETIME] [--kb KB]
+                     [--config CONFIG] [--no-validate] [--json] [-q] [-v]
+                     path
+
+positional arguments:
+  path                  Path to scan (directory or single file)
 
 options:
   -h, --help            show this help message and exit
   -o OUTPUT, --output OUTPUT
                         Output file path (default: cbom.json)
   -f {json,md}, --format {json,md}
-                        Output format (default: json)
+                        Output format
   --horizon-year HORIZON_YEAR
-                        Years until CRQC (default: from config.yaml)
+                        Year a cryptographically relevant quantum computer is
+                        assumed to exist (Z in Mosca's inequality; default:
+                        from config.yaml)
   --migration-years MIGRATION_YEARS
                         Migration time in years (default: from config.yaml)
   --data-lifetime DATA_LIFETIME
@@ -78,9 +106,88 @@ options:
   --kb KB               Path to knowledge base YAML
   --config CONFIG       Path to config YAML
   --no-validate         Skip CBOM schema validation
+  --json                Print the summary as JSON to stdout
+  -q, --quiet           Only print the summary
+  -v, --verbose         Verbose logging
 ```
 
-### GUI Usage
+### Command line
+
+CBOMScan installs a global `cbomscan` command, so it works from any terminal
+the way `git` or `npm` does:
+
+```bash
+pip install -e .            # puts `cbomscan` on PATH
+
+cbomscan scan .             # scan the current directory -> cbom.json
+cbomscan scan . -f md -o report.md
+cbomscan scan . --horizon-year 2035 --migration-years 3 --data-lifetime 25
+cbomscan scan . --json      # summary as JSON on stdout, for CI
+cbomscan detectors          # list the diagnostic tools
+cbomscan serve              # API + web dashboard on :8000
+cbomscan app                # launch the desktop application
+cbomscan wizard             # launch the setup wizard
+cbomscan version
+```
+
+Exit codes: `0` success, `1` output write error, `2` unreadable path or knowledge
+base, `130` interrupted.
+
+### Desktop application (Electron)
+
+A minimalist Windows app with switchable dark and light themes, covering
+everything the CLI does:
+
+| Page | What it does |
+|---|---|
+| **Scan** | Folder picker, live Mosca X/Y/Z sliders, recent repositories, open the repo in a terminal or in Explorer |
+| **Results** | Summary tiles, verdict distribution, sortable/filterable asset table, per-artifact detail drawer, CBOM and Markdown export |
+| **Diagnostic Tools** | Every detector, what it inspects, what it finds, and the confidence it reports |
+| **Knowledge Base** | The full algorithm table backing every verdict and recommendation |
+| **Command Line** | The equivalent CLI command for each feature, with copy buttons |
+| **Settings** | Theme (light / dark / system), version info, backend log |
+
+```bash
+make app                    # build installer + portable exe into desktop/dist
+cd desktop && npm start     # run against a source checkout
+make app-smoke              # headless UI test of the real app
+```
+
+The build produces `CBOMScan-Setup-0.1.0.exe` (installer) and
+`CBOMScan-Portable-0.1.0.exe`. Both embed the Python engine as
+`CBOMScan-Backend.exe`, so the installed app needs **no Python, Node, or network
+access**. The app spawns the engine on a free loopback port at launch and shuts
+it down on exit.
+
+### Desktop Wizard (packaged executable)
+
+`dist/CBOMScan-Wizard.exe` is a single self-contained Windows executable — no Python,
+Node or network access required on the target machine. It bundles the knowledge base,
+the CycloneDX 1.7 schemas, the tree-sitter grammars and the built React dashboard.
+
+```bash
+make wizard          # build it (requires: pip install pyinstaller, npm install)
+```
+
+The wizard walks through four steps:
+
+1. **Welcome** — what will be scanned
+2. **Select a target** — folder picker for the repository
+3. **Quantum risk horizon** — sliders for Mosca's X, Y and Z
+4. **Scan & results** — verdict breakdown, highest-priority table, and buttons to
+   save the CBOM (schema-validated on write), save the Markdown report, launch the
+   full React dashboard, or open the CBOMScan desktop app
+
+To verify a build without a display, run it headless:
+
+```bash
+dist/CBOMScan-Wizard.exe --selftest <path-to-scan> <report-file>
+```
+
+This exercises the bundled knowledge base, schemas and grammars exactly as the GUI
+does and writes a PASS/FAIL report — the check that catches missing bundled data.
+
+### GUI Usage (development)
 
 ```bash
 # Terminal 1: Start the API server

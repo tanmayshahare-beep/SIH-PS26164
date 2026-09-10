@@ -1,12 +1,15 @@
 """Config detector for Terraform, K8s, CloudFormation, nginx, Apache, Dockerfile."""
 
+import logging
 import re
 from pathlib import Path
 
 import hcl2
 import yaml
 
-from cbomscan.models import Occurrence
+from cbomscan.models import Occurrence, RawFinding
+
+logger = logging.getLogger(__name__)
 
 # Cloud KMS/HSM service patterns
 CLOUD_KMS_PATTERNS = {
@@ -91,13 +94,13 @@ WEAK_CIPHER_PATTERNS = [
 ]
 
 
-def _detect_terraform_kms(content: str, file_path: str) -> "list[RawFinding]":
+def _detect_terraform_kms(content: str, file_path: str) -> list[RawFinding]:
     """Detect cloud KMS references in Terraform HCL."""
-    from cbomscan.detectors import RawFinding
     findings = []
     try:
         parsed = hcl2.loads(content)
     except Exception:
+        logger.debug("Could not parse %s", file_path, exc_info=True)
         return findings
 
     def _visit(obj, path=""):
@@ -108,7 +111,7 @@ def _detect_terraform_kms(content: str, file_path: str) -> "list[RawFinding]":
                 if key == "resource" and isinstance(value, list):
                     for resource_block in value:
                         if isinstance(resource_block, dict):
-                            for resource_type, resource_instances in resource_block.items():
+                            for resource_type in resource_block:
                                 for kms_type, patterns in CLOUD_KMS_PATTERNS.items():
                                     for pattern in patterns:
                                         if re.search(pattern, resource_type, re.IGNORECASE):
@@ -125,13 +128,13 @@ def _detect_terraform_kms(content: str, file_path: str) -> "list[RawFinding]":
     return findings
 
 
-def _detect_k8s_kms(content: str, file_path: str) -> "list[RawFinding]":
+def _detect_k8s_kms(content: str, file_path: str) -> list[RawFinding]:
     """Detect cloud KMS references in K8s YAML."""
-    from cbomscan.detectors import RawFinding
     findings = []
     try:
         docs = list(yaml.safe_load_all(content))
     except Exception:
+        logger.debug("Could not parse %s", file_path, exc_info=True)
         return findings
 
     for doc in docs:
@@ -139,7 +142,9 @@ def _detect_k8s_kms(content: str, file_path: str) -> "list[RawFinding]":
             continue
         # Check for KMS-related kinds
         kind = doc.get("kind", "")
-        if any(kms_kind in kind.lower() for kms_kind in ["kms", "keyvault", "secret", "certificate"]):
+        if any(
+            kms_kind in kind.lower() for kms_kind in ["kms", "keyvault", "secret", "certificate"]
+        ):
             # Look for provider-specific annotations or spec fields
             spec = doc.get("spec", {})
             metadata = doc.get("metadata", {})
@@ -150,24 +155,23 @@ def _detect_k8s_kms(content: str, file_path: str) -> "list[RawFinding]":
                     # Check kind, spec, and annotations
                     for check_str in [kind, str(spec), str(annotations)]:
                         if re.search(pattern, check_str, re.IGNORECASE):
-                            finding = _create_kms_finding(
-                                kms_type, kind, file_path, f"kind={kind}"
-                            )
+                            finding = _create_kms_finding(kms_type, kind, file_path, f"kind={kind}")
                             findings.append(finding)
     return findings
 
 
-def _detect_cloudformation_kms(content: str, file_path: str) -> "list[RawFinding]":
+def _detect_cloudformation_kms(content: str, file_path: str) -> list[RawFinding]:
     """Detect cloud KMS references in CloudFormation YAML/JSON."""
-    from cbomscan.detectors import RawFinding
     findings = []
     try:
         if content.strip().startswith("{"):
             import json
+
             template = json.loads(content)
         else:
             template = yaml.safe_load(content)
     except Exception:
+        logger.debug("Could not parse %s", file_path, exc_info=True)
         return findings
 
     resources = template.get("Resources", {})
@@ -187,7 +191,6 @@ def _detect_cloudformation_kms(content: str, file_path: str) -> "list[RawFinding
 
 def _create_kms_finding(kms_type: str, matched: str, file_path: str, location: str):
     """Create a flagged finding for KMS reference."""
-    from cbomscan.detectors import RawFinding
     kms_names = {
         "aws_kms": "AWS KMS",
         "aws_acm": "AWS ACM",
@@ -212,14 +215,16 @@ def _create_kms_finding(kms_type: str, matched: str, file_path: str, location: s
         confidence="flagged",
         metadata={
             "matched_pattern": matched,
-            "note": f"{name} reference detected — algorithm not statically determinable, manual review required",
+            "note": (
+                f"{name} reference detected - algorithm not statically "
+                "determinable, manual review required"
+            ),
         },
     )
 
 
-def _detect_nginx_tls(content: str, file_path: str) -> "list[RawFinding]":
+def _detect_nginx_tls(content: str, file_path: str) -> list[RawFinding]:
     """Detect TLS configuration in nginx config."""
-    from cbomscan.detectors import RawFinding
     findings = []
     lines = content.split("\n")
 
@@ -240,9 +245,8 @@ def _detect_nginx_tls(content: str, file_path: str) -> "list[RawFinding]":
     return findings
 
 
-def _detect_apache_tls(content: str, file_path: str) -> "list[RawFinding]":
+def _detect_apache_tls(content: str, file_path: str) -> list[RawFinding]:
     """Detect TLS configuration in Apache config."""
-    from cbomscan.detectors import RawFinding
     findings = []
     lines = content.split("\n")
 
@@ -267,7 +271,6 @@ def _create_tls_finding(
     server_type: str, pattern_name: str, value: str, file_path: str, line_num: int, raw_line: str
 ):
     """Create a flagged finding for TLS config."""
-    from cbomscan.detectors import RawFinding
     # Check for weak configurations
     is_weak = False
     weakness_notes = []
@@ -320,7 +323,6 @@ def _create_tls_finding(
 
 def _detect_dockerfile_base_image(content: str, file_path: str):
     """Detect FROM base images in Dockerfile."""
-    from cbomscan.detectors import RawFinding
     findings = []
     lines = content.split("\n")
 
@@ -347,7 +349,10 @@ def _detect_dockerfile_base_image(content: str, file_path: str):
                 confidence="flagged",
                 metadata={
                     "image": image,
-                    "note": f"Base image {image} may contain cryptographic libraries — out of static analysis scope, manual review required",
+                    "note": (
+                        f"Base image {image} may contain cryptographic libraries "
+                        "- out of static analysis scope, manual review required"
+                    ),
                 },
             )
             findings.append(finding)
@@ -359,9 +364,27 @@ class ConfigDetector:
     """Detector for config files: Terraform, K8s, CloudFormation, nginx, Apache, Dockerfile."""
 
     name = "config"
+    title = "Config & Infrastructure Detector"
+    summary = (
+        "Catalogues crypto references in infrastructure config that cannot be "
+        "resolved statically."
+    )
+    detail = (
+        "Scans Terraform, Kubernetes, CloudFormation, nginx/Apache and Dockerfiles for "
+        "references to managed key material and TLS settings. The concrete algorithm "
+        "lives in the cloud service or base image, not the repository, so every finding "
+        "is marked 'flagged' for manual review rather than given a verdict."
+    )
+    typical_confidence = "flagged"
+    inputs = [".tf", ".tfvars", ".yaml", ".yml", ".conf", "Dockerfile"]
+    detects = [
+        "Cloud KMS/HSM references (AWS KMS/ACM/CloudHSM, Azure Key Vault, GCP KMS)",
+        "TLS protocol and cipher-suite configuration, including weak selections",
+        "Container base images that may ship their own crypto libraries",
+    ]
     supported_extensions = [".tf", ".tfvars", ".yaml", ".yml", ".conf", ".config", "Dockerfile"]
 
-    def detect(self, file_path: str, content: str) -> "list[RawFinding]":
+    def detect(self, file_path: str, content: str) -> list[RawFinding]:
         findings = []
         file_name = Path(file_path).name
         file_ext = Path(file_path).suffix.lower()

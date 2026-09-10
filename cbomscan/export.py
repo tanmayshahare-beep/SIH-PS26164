@@ -1,8 +1,9 @@
 """Export stage - serialize to CycloneDX 1.7 CBOM JSON and Markdown."""
 
 import json
-import urllib.request
 from datetime import UTC, datetime
+from functools import lru_cache
+from pathlib import Path
 
 import jsonschema
 from cyclonedx.model.bom import Bom
@@ -15,46 +16,42 @@ from cyclonedx.model.crypto import (
     CryptoPrimitive,
     CryptoProperties,
 )
-from cyclonedx.model.tool import Tool
 from cyclonedx.output.json import JsonV1Dot7
+from referencing import Registry, Resource
 
-from cbomscan.models import AssetType, CryptoArtifact, Verdict
+from cbomscan.models import AssetType, Confidence, CryptoArtifact, Verdict
 
-# CycloneDX 1.7 schema URL for validation
-CYCLONEDX_SCHEMA_URL = "https://cyclonedx.org/schema/bom-1.7.schema.json"
-
-
-def _fetch_schema() -> dict | None:
-    """Fetch the CycloneDX 1.7 JSON schema. Returns None if fetch fails."""
-    try:
-        req = urllib.request.Request(
-            CYCLONEDX_SCHEMA_URL,
-            headers={"User-Agent": "CBOMScan/0.1.0"},
-        )
-        with urllib.request.urlopen(req, timeout=10) as response:
-            return json.load(response)
-    except Exception:
-        return None
+# The CycloneDX 1.7 schema (and the two schemas it references) ship with the
+# package. Validation used to fetch them over the network on every run, which
+# made it slow, and silently degraded to "no validation at all" whenever the
+# machine was offline - so a CBOM could be reported as valid without ever
+# having been checked.
+SCHEMA_DIR = Path(__file__).parent / "schemas"
+CYCLONEDX_SCHEMA = "bom-1.7.schema.json"
 
 
-_CACHED_SCHEMA: dict | None = None
-
-
-def _get_schema() -> dict | None:
-    """Get the CycloneDX schema, caching it."""
-    global _CACHED_SCHEMA
-    if _CACHED_SCHEMA is None:
-        _CACHED_SCHEMA = _fetch_schema()
-    return _CACHED_SCHEMA
+@lru_cache(maxsize=1)
+def _schema_registry() -> tuple[dict, Registry]:
+    """Load the bundled CycloneDX schema and its referenced schemas."""
+    resources = []
+    for path in SCHEMA_DIR.glob("*.json"):
+        contents = json.loads(path.read_text(encoding="utf-8"))
+        # Register under the schema's own $id so the relative $refs inside
+        # bom-1.7 (spdx.schema.json, jsf-0.82.schema.json) resolve locally.
+        resources.append((contents["$id"], Resource.from_contents(contents)))
+    registry = Registry().with_resources(resources)
+    root = json.loads((SCHEMA_DIR / CYCLONEDX_SCHEMA).read_text(encoding="utf-8"))
+    return root, registry
 
 
 def validate_cyclonedx(bom_dict: dict) -> None:
-    """Validate a CBOM dict against the CycloneDX 1.7 schema."""
-    schema = _get_schema()
-    if schema is None:
-        # Skip validation if schema can't be fetched
-        return
-    jsonschema.validate(instance=bom_dict, schema=schema)
+    """Validate a CBOM dict against the bundled CycloneDX 1.7 schema.
+
+    Raises jsonschema.ValidationError if the document does not conform.
+    """
+    schema, registry = _schema_registry()
+    validator_cls = jsonschema.validators.validator_for(schema)
+    validator_cls(schema, registry=registry).validate(bom_dict)
 
 
 def _bom_ref(artifact: CryptoArtifact) -> str:
@@ -77,9 +74,9 @@ def _verdict_to_nist_quantum_level(verdict: Verdict) -> int:
     """Map our Verdict to NIST quantum security level."""
     mapping = {
         Verdict.VULNERABLE: 0,  # Quantum-broken
-        Verdict.WEAKENED: 1,    # Weakened by Grover
-        Verdict.BROKEN: 0,      # Already broken
-        Verdict.SAFE: 3,        # Quantum-safe (Level 3+)
+        Verdict.WEAKENED: 1,  # Weakened by Grover
+        Verdict.BROKEN: 0,  # Already broken
+        Verdict.SAFE: 3,  # Quantum-safe (Level 3+)
     }
     return mapping[verdict]
 
@@ -209,7 +206,7 @@ def _build_cyclonedx_component(artifact: CryptoArtifact) -> Component:
         for occ in artifact.occurrences:
             cyclo_occurrences.append(
                 CycloneDxOccurrence(
-                    location=occ.file,
+                    location=occ.file.replace("\\", "/"),
                     line=occ.line,
                     symbol=occ.symbol,
                 )
@@ -232,9 +229,29 @@ def to_cyclonedx(artifacts: list[CryptoArtifact], tool_name: str = "CBOMScan") -
 
     bom = Bom()
     bom.components = components
-    bom.metadata.tools = [Tool(name=tool_name, version="0.1.0")]
-    bom.metadata.component = Component(type=ComponentType.APPLICATION, name="scanned-repository")
+    bom.metadata.tools.components.add(
+        Component(type=ComponentType.APPLICATION, name=tool_name, version="0.1.0")
+    )
+    root = Component(type=ComponentType.APPLICATION, name="scanned-repository")
+    bom.metadata.component = root
+    # Register the crypto assets as dependencies of the scanned repository so
+    # the dependency graph is complete rather than a dangling root.
+    bom.register_dependency(root, components)
     return bom
+
+
+def to_cyclonedx_json(
+    artifacts: list[CryptoArtifact],
+    validate: bool = True,
+) -> str:
+    """Serialize artifacts to a CycloneDX 1.7 CBOM JSON string."""
+    bom = to_cyclonedx(artifacts)
+    json_str = JsonV1Dot7(bom).output_as_string(indent=2)
+
+    if validate:
+        validate_cyclonedx(json.loads(json_str))
+
+    return json_str
 
 
 def write_cyclonedx_json(
@@ -243,21 +260,19 @@ def write_cyclonedx_json(
     validate: bool = True,
 ) -> None:
     """Write CBOM as JSON to file using cyclonedx-python-lib."""
-    bom = to_cyclonedx(artifacts)
-    output = JsonV1Dot7(bom)
-    json_str = output.output_as_string(indent=2)
-
-    if validate:
-        # Parse back to dict for validation
-        bom_dict = json.loads(json_str)
-        validate_cyclonedx(bom_dict)
-
-    with open(output_path, "w") as f:
+    json_str = to_cyclonedx_json(artifacts, validate=validate)
+    with open(output_path, "w", encoding="utf-8") as f:
         f.write(json_str)
 
 
 def write_markdown_report(artifacts: list[CryptoArtifact], output_path: str) -> None:
     """Write human-readable Markdown report."""
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(build_markdown_report(artifacts))
+
+
+def build_markdown_report(artifacts: list[CryptoArtifact]) -> str:
+    """Render the human-readable Markdown report as a string."""
     lines = [
         "# CBOMScan Report",
         f"Generated: {datetime.now(UTC).isoformat()}",
@@ -266,13 +281,21 @@ def write_markdown_report(artifacts: list[CryptoArtifact], output_path: str) -> 
         "## Summary by Verdict",
     ]
 
-    # Count by verdict
-    verdict_counts = {}
+    # Count by verdict. Flagged artifacts hold a default SAFE verdict only
+    # because their algorithm could not be resolved, so they are counted
+    # separately rather than inflating the "safe" total.
+    verdict_counts: dict[str, int] = {}
+    needs_review = 0
     for a in artifacts:
+        if a.confidence == Confidence.FLAGGED:
+            needs_review += 1
+            continue
         verdict_counts[a.verdict.value] = verdict_counts.get(a.verdict.value, 0) + 1
 
     for verdict, count in sorted(verdict_counts.items()):
         lines.append(f"- {verdict}: {count}")
+    if needs_review:
+        lines.append(f"- needs manual review (verdict undetermined): {needs_review}")
 
     # Count by confidence
     lines.append("")
@@ -284,7 +307,7 @@ def write_markdown_report(artifacts: list[CryptoArtifact], output_path: str) -> 
         lines.append(f"- {conf}: {count}")
 
     # Requires Manual Review section
-    flagged_artifacts = [a for a in artifacts if a.confidence.value == "flagged"]
+    flagged_artifacts = [a for a in artifacts if a.confidence == Confidence.FLAGGED]
     if flagged_artifacts:
         lines.append("")
         lines.append("## [WARNING] Requires Manual Review")
@@ -326,7 +349,7 @@ def write_markdown_report(artifacts: list[CryptoArtifact], output_path: str) -> 
 
     for artifact in sorted(artifacts, key=lambda a: (a.verdict.value, a.name)):
         # Skip flagged artifacts as they're already in the manual review section
-        if artifact.confidence.value == "flagged":
+        if artifact.confidence == Confidence.FLAGGED:
             continue
         lines.append(f"### {artifact.name} ({artifact.asset_type.value})")
         lines.append(f"- **ID**: {artifact.id}")
@@ -353,5 +376,4 @@ def write_markdown_report(artifacts: list[CryptoArtifact], output_path: str) -> 
                 lines.append(f"  - {loc}")
         lines.append("")
 
-    with open(output_path, "w") as f:
-        f.write("\n".join(lines))
+    return "\n".join(lines)

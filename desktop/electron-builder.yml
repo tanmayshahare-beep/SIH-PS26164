@@ -1,0 +1,41 @@
+appId: dev.cbomscan.desktop
+productName: CBOMScan
+copyright: CBOMScan
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - main.js
+  - preload.js
+  - renderer/**/*
+  - package.json
+
+# The Python engine ships alongside the app as a self-contained executable, so
+# the installed app needs neither Python nor a network connection.
+extraResources:
+  - from: ../dist/CBOMScan-Backend.exe
+    to: backend/CBOMScan-Backend.exe
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: CBOMScan
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+portable:
+  artifactName: ${productName}-Portable-${version}.${ext}
+
+compression: maximum

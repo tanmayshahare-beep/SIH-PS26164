@@ -29,12 +29,12 @@ def test_every_row_has_all_required_fields():
 
     for entry in entries:
         for field in REQUIRED_FIELDS:
-            assert field in entry, (
-                f"Missing field '{field}' in entry: {entry.get('algorithm', 'unknown')}"
-            )
-            assert entry[field] is not None, (
-                f"Field '{field}' is None in entry: {entry.get('algorithm', 'unknown')}"
-            )
+            assert (
+                field in entry
+            ), f"Missing field '{field}' in entry: {entry.get('algorithm', 'unknown')}"
+            assert (
+                entry[field] is not None
+            ), f"Field '{field}' is None in entry: {entry.get('algorithm', 'unknown')}"
 
 
 def test_verdict_values_valid():
@@ -43,9 +43,9 @@ def test_verdict_values_valid():
     valid_verdicts = {"vulnerable", "weakened", "broken", "safe"}
 
     for entry in kb.all_entries():
-        assert entry["verdict"] in valid_verdicts, (
-            f"Invalid verdict '{entry['verdict']}' for {entry['algorithm']}"
-        )
+        assert (
+            entry["verdict"] in valid_verdicts
+        ), f"Invalid verdict '{entry['verdict']}' for {entry['algorithm']}"
 
 
 def test_maturity_values_valid():
@@ -54,9 +54,9 @@ def test_maturity_values_valid():
     valid_maturities = {"nist-standardized", "draft", "deprecated", "unknown"}
 
     for entry in kb.all_entries():
-        assert entry["maturity"] in valid_maturities, (
-            f"Invalid maturity '{entry['maturity']}' for {entry['algorithm']}"
-        )
+        assert (
+            entry["maturity"] in valid_maturities
+        ), f"Invalid maturity '{entry['maturity']}' for {entry['algorithm']}"
 
 
 def test_hybrid_ok_is_boolean():
@@ -64,9 +64,9 @@ def test_hybrid_ok_is_boolean():
     kb = KnowledgeBase.load("cbomscan/knowledge_base.yaml")
 
     for entry in kb.all_entries():
-        assert isinstance(entry["hybrid_ok"], bool), (
-            f"hybrid_ok not boolean for {entry['algorithm']}"
-        )
+        assert isinstance(
+            entry["hybrid_ok"], bool
+        ), f"hybrid_ok not boolean for {entry['algorithm']}"
 
 
 def test_lookup_case_insensitive():

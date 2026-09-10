@@ -1,0 +1,19 @@
+{
+  "name": "cbomscan-desktop",
+  "productName": "CBOMScan",
+  "version": "0.1.0",
+  "description": "CBOMScan desktop - cryptographic bill of materials scanner",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --publish never",
+    "pack": "electron-builder --win --dir",
+    "smoke": "electron smoke-test.js"
+  },
+  "author": "CBOMScan",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3"
+  }
+}

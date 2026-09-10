@@ -5,7 +5,7 @@ import contextlib
 from cryptography import x509
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa, x25519
 
-from cbomscan.models import Occurrence
+from cbomscan.models import Occurrence, RawFinding
 
 # Map of signature algorithm OIDs to algorithm names
 SIG_ALGORITHM_MAP = {
@@ -27,21 +27,7 @@ SIG_ALGORITHM_MAP = {
 
 def _get_curve_name(curve: ec.EllipticCurve) -> str | None:
     """Map cryptography curve object to curve name."""
-    curve_map = {
-        ec.SECP256R1: "secp256r1",
-        ec.SECP384R1: "secp384r1",
-        ec.SECP521R1: "secp521r1",
-        ec.SECP256K1: "secp256k1",
-        ec.SECP192R1: "secp192r1",
-        ec.SECP224R1: "secp224r1",
-        ec.BrainpoolP256R1: "brainpoolP256r1",
-        ec.BrainpoolP384R1: "brainpoolP384r1",
-        ec.BrainpoolP512R1: "brainpoolP512r1",
-    }
-    for curve_class, name in curve_map.items():
-        if isinstance(curve, curve_class):
-            return name
-    return None
+    return getattr(curve, "name", None)
 
 
 def _get_key_info(public_key) -> dict:
@@ -85,10 +71,9 @@ def _parse_pem(content: bytes) -> list[x509.Certificate]:
         cert = x509.load_pem_x509_certificate(content)
         certs.append(cert)
     except ValueError:
-        # Try loading multiple PEM certificates
-        from cryptography.hazmat.primitives.serialization import load_pem_x509_certificates
+        # Fall back to a bundle of concatenated PEM certificates.
         with contextlib.suppress(ValueError):
-            certs = load_pem_x509_certificates(content)
+            certs = x509.load_pem_x509_certificates(content)
     return certs
 
 
@@ -107,14 +92,27 @@ class CertDetector:
     """Detector for X.509 certificate files."""
 
     name = "certificate"
+    title = "Certificate Detector"
+    summary = "Parses X.509 certificates and reads their real signature and key parameters."
+    detail = (
+        "Loads PEM and DER certificates (including concatenated bundles) and extracts "
+        "the signature algorithm OID, public key type, key size and curve directly "
+        "from the certificate, so findings are exact rather than inferred."
+    )
+    typical_confidence = "confirmed"
+    inputs = [".pem", ".crt", ".cer", ".der"]
+    detects = [
+        "Signature algorithms (sha256WithRSA, ECDSA-with-SHA*, Ed25519, ...)",
+        "Public key algorithm, key size and named curve",
+        "Subject, issuer, serial number and validity window",
+    ]
     supported_extensions = [".pem", ".crt", ".cer", ".der"]
 
     def detect(self, file_path: str, content: str) -> list:
         """Detect cryptographic artifacts in a certificate file."""
-        from cbomscan.detectors import RawFinding
 
         findings = []
-        file_bytes = content.encode("utf-8")
+        file_bytes = content.encode("latin-1", errors="replace")
 
         # Try to parse as PEM first, then DER
         certs = _parse_pem(file_bytes)
@@ -137,11 +135,6 @@ class CertDetector:
                 line=None,
                 symbol=f"Certificate: {cert.subject.rfc4514_string()}",
             )
-
-            # Determine verdict from signature algorithm
-            from cbomscan.knowledge_base import DEFAULT_KB_PATH, KnowledgeBase
-            kb = KnowledgeBase.load(DEFAULT_KB_PATH)
-            kb.lookup(sig_alg) or kb.lookup(key_info.get("name", ""))
 
             # Create main certificate artifact
             findings.append(
@@ -189,4 +182,3 @@ class CertDetector:
                 )
 
         return findings
-

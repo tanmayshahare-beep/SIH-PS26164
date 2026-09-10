@@ -19,7 +19,10 @@ dependencies = [
     "fastapi>=0.100",
     "uvicorn>=0.23",
     "jsonschema>=4.19",
-    "cyclonedx-python-lib>=6.0",
+    # Used directly to resolve the bundled CycloneDX schema's local $refs.
+    "referencing>=0.30",
+    # JsonV1Dot7 (CycloneDX 1.7 output) requires 8.x or newer.
+    "cyclonedx-python-lib>=8.0",
     "pydantic>=2.0",
 ]
 
@@ -30,6 +33,9 @@ dev = [
     "black>=23.0",
     "ruff>=0.1",
     "mypy>=1.5",
+]
+build = [
+    "pyinstaller>=6.0",
 ]
 
 [project.scripts]
@@ -53,6 +59,8 @@ target-version = ["py311"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "B", "C4", "SIM", "TID", "ARG"]
 ignore = ["SIM102", "SIM103", "TID252", "ARG001", "ARG002"]
 

@@ -1,7 +1,7 @@
 """Classify stage - assign asset type, criticality, and lifetime."""
 
 from cbomscan.knowledge_base import KnowledgeBase
-from cbomscan.models import CryptoArtifact, Verdict
+from cbomscan.models import Confidence, CryptoArtifact, Verdict
 
 # Default configuration
 DEFAULT_MIGRATION_YEARS = 2.0
@@ -24,10 +24,6 @@ def classify(
             # Set primitive from KB if not already set
             if not artifact.primitive:
                 artifact.primitive = kb_entry.get("primitive")
-        else:
-            # No KB entry - for flagged items, don't default to safe
-            # They remain with default verdict (SAFE) but confidence=flagged indicates review needed
-            pass
 
         # Set defaults for lifetime
         if artifact.migration_years is None:
@@ -35,13 +31,13 @@ def classify(
         if artifact.data_lifetime_years is None:
             artifact.data_lifetime_years = data_lifetime_years
 
-        # Heuristic criticality based on verdict
-        if artifact.verdict == Verdict.VULNERABLE:
+        # Heuristic criticality based on verdict. A flagged artifact is an
+        # unresolved reference, not a clean bill of health, so it never drops
+        # to "low" on the strength of the default SAFE verdict.
+        if artifact.verdict in (Verdict.VULNERABLE, Verdict.BROKEN):
             artifact.criticality = "high"
-        elif artifact.verdict == Verdict.WEAKENED:
+        elif artifact.verdict == Verdict.WEAKENED or artifact.confidence == Confidence.FLAGGED:
             artifact.criticality = "medium"
-        elif artifact.verdict == Verdict.BROKEN:
-            artifact.criticality = "high"
         else:
             artifact.criticality = "low"
 

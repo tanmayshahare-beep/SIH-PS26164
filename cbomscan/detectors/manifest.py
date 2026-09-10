@@ -1,11 +1,14 @@
 """Manifest detector for Python and JavaScript/TypeScript dependency files."""
 
 import json
+import logging
 import re
 import tomllib
 from pathlib import Path
 
-from cbomscan.models import Occurrence
+from cbomscan.models import Occurrence, RawFinding
+
+logger = logging.getLogger(__name__)
 
 # Map of known crypto libraries to the algorithm families they imply
 # Python libraries
@@ -215,7 +218,7 @@ def _parse_pyproject_toml(content: str) -> list[str]:
             if pkg.lower() != "python":
                 packages.append(pkg.lower())
     except Exception:
-        pass
+        logger.debug("Could not parse manifest", exc_info=True)
     return packages
 
 
@@ -241,7 +244,7 @@ def _parse_package_json(content: str) -> list[str]:
         for pkg in opt_deps:
             packages.append(pkg.lower())
     except Exception:
-        pass
+        logger.debug("Could not parse manifest", exc_info=True)
     return packages
 
 
@@ -249,11 +252,23 @@ class ManifestDetector:
     """Detector for Python and JavaScript/TypeScript manifest files."""
 
     name = "manifest"
+    title = "Manifest Detector"
+    summary = "Maps declared dependencies to the crypto algorithms they bring in."
+    detail = (
+        "Parses Python and JavaScript dependency manifests and looks each package up "
+        "in a curated library-to-algorithm map. A dependency proves the algorithm is "
+        "reachable, not that it is called, so findings are reported as 'inferred'."
+    )
+    typical_confidence = "inferred"
+    inputs = ["requirements.txt", "pyproject.toml", "package.json"]
+    detects = [
+        "Python crypto libraries (cryptography, pycryptodome, pyOpenSSL, PyNaCl, paramiko)",
+        "JS/TS crypto libraries (node-forge, elliptic, tweetnacl, jose, jsonwebtoken, @noble/*)",
+        "The algorithm families each library exposes",
+    ]
     supported_extensions = [".txt", ".toml", ".json"]
 
     def detect(self, file_path: str, content: str):
-        # Import here to avoid circular import
-        from cbomscan.detectors import RawFinding
 
         findings = []
         file_name = Path(file_path).name

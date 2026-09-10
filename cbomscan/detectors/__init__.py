@@ -1,37 +1,20 @@
 """Detector registry and base classes."""
 
 from abc import ABC, abstractmethod
-from typing import Any
 
 from cbomscan.detectors.cert import CertDetector
 from cbomscan.detectors.config import ConfigDetector
 from cbomscan.detectors.manifest import ManifestDetector
-from cbomscan.detectors.source import PythonSourceDetector, JavaScriptSourceDetector
-from cbomscan.models import Occurrence
+from cbomscan.detectors.source import JavaScriptSourceDetector, PythonSourceDetector
+from cbomscan.models import Occurrence, RawFinding
 
-
-class RawFinding:
-    """A raw finding from a detector before normalization."""
-
-    def __init__(
-        self,
-        asset_type: str,
-        name: str,
-        occurrences: list[Occurrence],
-        primitive: str | None = None,
-        key_size: int | None = None,
-        curve: str | None = None,
-        confidence: str = "inferred",
-        metadata: dict[str, Any] | None = None,
-    ):
-        self.asset_type = asset_type
-        self.name = name
-        self.occurrences = occurrences
-        self.primitive = primitive
-        self.key_size = key_size
-        self.curve = curve
-        self.confidence = confidence
-        self.metadata = metadata or {}
+__all__ = [
+    "Detector",
+    "DetectorRegistry",
+    "Occurrence",
+    "RawFinding",
+    "registry",
+]
 
 
 class Detector(ABC):
@@ -41,29 +24,34 @@ class Detector(ABC):
     @abstractmethod
     def name(self) -> str:
         """Unique name for this detector."""
-        pass
 
     @property
     @abstractmethod
     def supported_extensions(self) -> list[str]:
-        """File extensions this detector can process."""
-        pass
+        """File extensions (or exact file names) this detector can process."""
 
     @abstractmethod
     def detect(self, file_path: str, content: str) -> list[RawFinding]:
         """Detect cryptographic artifacts in a file."""
-        pass
 
 
 class DetectorRegistry:
-    """Registry for managing detectors."""
+    """Registry for managing detectors.
 
-    def __init__(self):
+    Detectors are indexed by suffix at registration time so that dispatching a
+    file is a handful of dict lookups rather than a scan over every detector's
+    extension list.
+    """
+
+    def __init__(self) -> None:
         self._detectors: dict[str, Detector] = {}
+        self._by_suffix: dict[str, list[Detector]] = {}
 
     def register(self, detector: Detector) -> None:
-        """Register a detector."""
+        """Register a detector and index its supported suffixes."""
         self._detectors[detector.name] = detector
+        for ext in detector.supported_extensions:
+            self._by_suffix.setdefault(ext.lower(), []).append(detector)
 
     def get(self, name: str) -> Detector | None:
         """Get a detector by name."""
@@ -73,13 +61,38 @@ class DetectorRegistry:
         """Get all registered detectors."""
         return list(self._detectors.values())
 
+    def describe(self) -> list[dict]:
+        """Self-description of every registered detector.
+
+        One source of truth for `cbomscan detectors`, the /api/detectors
+        endpoint and the desktop app's Tools page.
+        """
+        return [
+            {
+                "name": d.name,
+                "title": getattr(d, "title", d.name),
+                "summary": getattr(d, "summary", ""),
+                "detail": getattr(d, "detail", ""),
+                "typical_confidence": getattr(d, "typical_confidence", "inferred"),
+                "inputs": list(getattr(d, "inputs", d.supported_extensions)),
+                "detects": list(getattr(d, "detects", [])),
+                "extensions": list(d.supported_extensions),
+            }
+            for d in self._detectors.values()
+        ]
+
+    def suffixes(self) -> set[str]:
+        """Every suffix/filename any registered detector claims."""
+        return set(self._by_suffix)
+
     def for_file(self, file_path: str) -> list[Detector]:
         """Get detectors that can process a given file."""
-        return [
-            d
-            for d in self._detectors.values()
-            if any(file_path.endswith(ext) for ext in d.supported_extensions)
-        ]
+        lowered = file_path.lower()
+        matched: list[Detector] = []
+        for ext, detectors in self._by_suffix.items():
+            if lowered.endswith(ext):
+                matched.extend(detectors)
+        return matched
 
 
 registry = DetectorRegistry()

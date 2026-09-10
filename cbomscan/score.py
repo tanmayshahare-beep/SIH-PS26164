@@ -1,10 +1,11 @@
 """Score stage - apply Mosca's inequality for quantum risk."""
 
+from datetime import datetime
 from pathlib import Path
 
 import yaml
 
-from cbomscan.models import CryptoArtifact, Verdict
+from cbomscan.models import Confidence, CryptoArtifact, Verdict
 
 DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
@@ -21,7 +22,7 @@ def _load_config(path: Path | None = None) -> dict:
 def score(
     artifacts: list[CryptoArtifact],
     horizon_year: int | None = None,
-    current_year: int = 2026,
+    current_year: int | None = None,
     config_path: Path | None = None,
 ) -> list[CryptoArtifact]:
     """Apply Mosca's inequality: X + Y > Z means vulnerable.
@@ -33,11 +34,22 @@ def score(
     SAFE and BROKEN verdicts short-circuit Mosca.
     """
     config = _load_config(config_path)
+    if current_year is None:
+        current_year = datetime.now().year
     Z = (horizon_year or config.get("horizon_year", 2030)) - current_year
     default_migration = config.get("default_migration_years", 2.0)
     default_lifetime = config.get("default_data_lifetime_years", 10)
 
     for artifact in artifacts:
+        # A flagged artifact is a reference we could not resolve to an
+        # algorithm. Asserting anything about its quantum posture - including
+        # "safe" - would be a claim the scan cannot support.
+        if artifact.confidence == Confidence.FLAGGED:
+            artifact.notes = (artifact.notes or "") + (
+                " | Algorithm not statically determinable - manual review required"
+            )
+            continue
+
         # SAFE and BROKEN short-circuit Mosca
         if artifact.verdict == Verdict.SAFE:
             artifact.notes = (artifact.notes or "") + " | Quantum-safe"
@@ -51,8 +63,7 @@ def score(
 
         if X + Y > Z:
             artifact.notes = (
-                f"Mosca: X+Y={X+Y:.1f} > Z={Z} (X={X}, Y={Y}, Z={Z}) | "
-                f"Quantum risk: URGENT"
+                f"Mosca: X+Y={X+Y:.1f} > Z={Z} (X={X}, Y={Y}, Z={Z}) | " f"Quantum risk: URGENT"
             )
         else:
             artifact.notes = (

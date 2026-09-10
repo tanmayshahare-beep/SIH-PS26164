@@ -6,7 +6,7 @@ import pytest
 
 from cbomscan.detectors import registry
 from cbomscan.detectors.cert import CertDetector
-from cbomscan.detectors.source import PythonSourceDetector, JavaScriptSourceDetector
+from cbomscan.detectors.source import JavaScriptSourceDetector, PythonSourceDetector
 
 
 class TestPythonSourceDetector:
@@ -417,6 +417,7 @@ class TestManifestDetectorJS:
     def test_detect_package_json_crypto_libs(self):
         """Test detection of crypto libraries in package.json."""
         from cbomscan.detectors.manifest import ManifestDetector
+
         detector = ManifestDetector()
         content = """
 {
@@ -436,6 +437,7 @@ class TestManifestDetectorJS:
     def test_detect_package_json_confidence_inferred(self):
         """Test that package.json findings have inferred confidence."""
         from cbomscan.detectors.manifest import ManifestDetector
+
         detector = ManifestDetector()
         content = '{"dependencies": {"jsonwebtoken": "^9.0.0"}}'
         findings = detector.detect("package.json", content)

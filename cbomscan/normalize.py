@@ -35,7 +35,7 @@ def normalize(findings: list[RawFinding]) -> list[CryptoArtifact]:
         groups[_artifact_key(finding)].append(finding)
 
     artifacts = []
-    for group in groups.values():
+    for key, group in groups.items():
         first = group[0]
         # Merge occurrences
         all_occurrences = []
@@ -52,7 +52,7 @@ def normalize(findings: list[RawFinding]) -> list[CryptoArtifact]:
             confidence = _merge_confidence(confidence, Confidence(f.confidence))
 
         artifact = CryptoArtifact(
-            id=_artifact_key(first),
+            id=key,
             asset_type=AssetType(first.asset_type),
             name=first.name,
             primitive=first.primitive,

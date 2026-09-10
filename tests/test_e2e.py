@@ -57,6 +57,7 @@ def test_full_pipeline_on_fixture():
 
     # Convert to dict for validation
     from cyclonedx.output.json import JsonV1Dot7
+
     output = JsonV1Dot7(bom)
     json_str = output.output_as_string(indent=2)
     bom_dict = json.loads(json_str)
@@ -94,18 +95,25 @@ def test_cli_end_to_end():
     try:
         # Run CLI
         import sys
+
         sys.argv = ["cbomscan", "scan", str(fixture_path), "-o", output_path, "-f", "json"]
-        run_scan(type("Args", (), {
-            "path": str(fixture_path),
-            "output": output_path,
-            "format": "json",
-            "horizon_year": None,
-            "migration_years": None,
-            "data_lifetime": None,
-            "kb": str(DEFAULT_KB_PATH),
-            "config": str(Path(__file__).parent.parent / "cbomscan" / "config.yaml"),
-            "no_validate": False,
-        })())
+        run_scan(
+            type(
+                "Args",
+                (),
+                {
+                    "path": str(fixture_path),
+                    "output": output_path,
+                    "format": "json",
+                    "horizon_year": None,
+                    "migration_years": None,
+                    "data_lifetime": None,
+                    "kb": str(DEFAULT_KB_PATH),
+                    "config": str(Path(__file__).parent.parent / "cbomscan" / "config.yaml"),
+                    "no_validate": False,
+                },
+            )()
+        )
 
         # Read and validate output
         with open(output_path) as f:
@@ -122,9 +130,7 @@ def test_cli_end_to_end():
         rsa_components = [c for c in bom_dict["components"] if c["name"] == "RSA"]
         assert len(rsa_components) == 1
         rsa_comp = rsa_components[0]
-        assert rsa_comp["cryptoProperties"]["algorithmProperties"][
-            "nistQuantumSecurityLevel"
-        ] == 0
+        assert rsa_comp["cryptoProperties"]["algorithmProperties"]["nistQuantumSecurityLevel"] == 0
 
     finally:
         Path(output_path).unlink(missing_ok=True)

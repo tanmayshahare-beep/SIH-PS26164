@@ -1,4 +1,4 @@
-.PHONY: install test run lint typecheck clean
+.PHONY: install test run lint typecheck clean frontend wizard backend app app-smoke release
 
 # Default target
 all: install test
@@ -36,6 +36,26 @@ clean:
 	rm -rf build dist *.egg-info .pytest_cache .mypy_cache .coverage htmlcov
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete
+
+# Build the React dashboard
+frontend:
+	cd frontend && npm install && npm run build
+
+# Build both Python executables: the setup wizard and the engine the app spawns
+wizard backend: frontend
+	pyinstaller CBOMScan.spec --noconfirm --clean
+
+# Build the Electron desktop app (installer + portable). Needs the backend exe.
+app: backend
+	cd desktop && npm install && npx electron-builder --win --publish never
+
+# Assemble the distribution ZIP (setup wizard + payload). Copies only.
+release: app
+	python tools/make_release.py
+
+# Drive the real desktop app headlessly and assert on the rendered UI
+app-smoke:
+	cd desktop && npx electron smoke-test.js && type smoke-report.txt
 
 # Full check pipeline
 check: lint typecheck test

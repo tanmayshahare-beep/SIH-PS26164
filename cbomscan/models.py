@@ -46,3 +46,21 @@ class CryptoArtifact:
     recommendation: str | None = None
     notes: str | None = None
     metadata: dict = field(default_factory=dict)
+
+
+@dataclass
+class RawFinding:
+    """A raw finding from a detector, before normalization.
+
+    Lives in models.py (not detectors/) so detectors can import it at module
+    level without a circular import back through the registry.
+    """
+
+    asset_type: str
+    name: str
+    occurrences: list[Occurrence] = field(default_factory=list)
+    primitive: str | None = None
+    key_size: int | None = None
+    curve: str | None = None
+    confidence: str = "inferred"
+    metadata: dict = field(default_factory=dict)

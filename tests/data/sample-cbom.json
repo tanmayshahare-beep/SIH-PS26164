@@ -1,0 +1,66 @@
+{
+  "components": [
+    {
+      "bom-ref": "crypto/algorithm/s1",
+      "cryptoProperties": {
+        "algorithmProperties": {
+          "classicalSecurityLevel": 112,
+          "cryptoFunctions": [
+            "decrypt",
+            "encrypt"
+          ],
+          "executionEnvironment": "software-plain-ram",
+          "nistQuantumSecurityLevel": 0,
+          "parameterSetIdentifier": "2048",
+          "primitive": "pke"
+        },
+        "assetType": "algorithm",
+        "oid": "1.2.840.113549.1.1.1"
+      },
+      "evidence": {
+        "occurrences": [
+          {
+            "line": 42,
+            "location": "src/auth.py",
+            "symbol": "generate_private_key"
+          }
+        ]
+      },
+      "name": "RSA",
+      "type": "cryptographic-asset"
+    }
+  ],
+  "dependencies": [
+    {
+      "dependsOn": [
+        "crypto/algorithm/s1"
+      ],
+      "ref": "BomRef.13553211059708925.5023539788638924"
+    },
+    {
+      "ref": "crypto/algorithm/s1"
+    }
+  ],
+  "metadata": {
+    "component": {
+      "bom-ref": "BomRef.13553211059708925.5023539788638924",
+      "name": "scanned-repository",
+      "type": "application"
+    },
+    "timestamp": "2026-09-09T19:59:45.211521+00:00",
+    "tools": {
+      "components": [
+        {
+          "name": "CBOMScan",
+          "type": "application",
+          "version": "0.1.0"
+        }
+      ]
+    }
+  },
+  "serialNumber": "urn:uuid:b4957dcd-44b5-462b-87cc-6568092a8a74",
+  "version": 1,
+  "$schema": "http://cyclonedx.org/schema/bom-1.7.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.7"
+}

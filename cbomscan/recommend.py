@@ -1,14 +1,14 @@
 """Recommend stage - attach PQC/hybrid recommendations from KB."""
 
 from cbomscan.knowledge_base import KnowledgeBase
-from cbomscan.models import CryptoArtifact, Verdict
+from cbomscan.models import Confidence, CryptoArtifact, Verdict
 
 
 def recommend(artifacts: list[CryptoArtifact], kb: KnowledgeBase) -> list[CryptoArtifact]:
     """Attach recommendations from knowledge base."""
     for artifact in artifacts:
         # Handle flagged confidence items first - they always need manual review
-        if artifact.confidence.value == "flagged":
+        if artifact.confidence == Confidence.FLAGGED:
             artifact.recommendation = (
                 "MANUAL REVIEW REQUIRED — This artifact references cryptographic infrastructure "
                 "(cloud KMS/HSM, TLS configuration, or container base image) where the algorithm "
@@ -50,8 +50,8 @@ def recommend(artifacts: list[CryptoArtifact], kb: KnowledgeBase) -> list[Crypto
                 artifact.recommendation = "No action — quantum-resistant"
             elif artifact.verdict in (Verdict.VULNERABLE, Verdict.WEAKENED, Verdict.BROKEN):
                 artifact.recommendation = (
-                    f"No specific recommendation in KB — migrate to NIST PQC standard "
-                    f"(ML-KEM for KEX, ML-DSA for signatures, AES-256 for symmetric)"
+                    "No specific recommendation in KB - migrate to NIST PQC standard "
+                    "(ML-KEM for KEX, ML-DSA for signatures, AES-256 for symmetric)"
                 )
             else:
                 artifact.recommendation = "Review required"

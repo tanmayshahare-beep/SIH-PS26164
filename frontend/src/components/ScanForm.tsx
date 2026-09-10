@@ -1,21 +1,23 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { scanRepository } from '../api/client';
 import type { ScanRequest } from '../types';
 
 export function ScanForm() {
   const navigate = useNavigate();
-  const [path, setPath] = useState('');
+  // The desktop wizard hands off the folder it just scanned via ?path=
+  const [path, setPath] = useState(
+    () => new URLSearchParams(window.location.search).get('path') ?? ''
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const runScan = async (target: string) => {
     setLoading(true);
     setError(null);
 
     try {
-      const request: ScanRequest = { path };
+      const request: ScanRequest = { path: target };
       const response = await scanRepository(request);
       // Store artifacts in sessionStorage for results page
       sessionStorage.setItem('scanResults', JSON.stringify(response));
@@ -26,6 +28,20 @@ export function ScanForm() {
       setLoading(false);
     }
   };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    void runScan(path);
+  };
+
+  // Auto-run when the wizard supplied a path, so the dashboard opens on results.
+  useEffect(() => {
+    const handoff = new URLSearchParams(window.location.search).get('path');
+    if (handoff) {
+      void runScan(handoff);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="scan-form-container">

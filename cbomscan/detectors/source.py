@@ -4,10 +4,10 @@ import contextlib
 import re
 
 import tree_sitter
-import tree_sitter_python as tspython
 import tree_sitter_javascript as tsjavascript
+import tree_sitter_python as tspython
 
-from cbomscan.models import Occurrence
+from cbomscan.models import Occurrence, RawFinding
 
 # Language setup
 PY_LANGUAGE = tree_sitter.Language(tspython.language())
@@ -266,13 +266,13 @@ def _extract_imports(root_node: tree_sitter.Node, source: bytes) -> dict[str, st
                             alias = None
                             for n in name_node.children:
                                 if n.type == "dotted_name":
-                                    module_name = source[n.start_byte:n.end_byte].decode()
+                                    module_name = source[n.start_byte : n.end_byte].decode()
                                 elif n.type == "identifier":
-                                    alias = source[n.start_byte:n.end_byte].decode()
+                                    alias = source[n.start_byte : n.end_byte].decode()
                             if alias:
                                 imports[alias] = module_name
                 elif child.type == "dotted_name":
-                    module_name = source[child.start_byte:child.end_byte].decode()
+                    module_name = source[child.start_byte : child.end_byte].decode()
                     parts = module_name.split(".")
                     if parts:
                         imports[parts[-1]] = module_name
@@ -282,11 +282,11 @@ def _extract_imports(root_node: tree_sitter.Node, source: bytes) -> dict[str, st
                 if child.type == "dotted_name":
                     # First dotted_name is the module, subsequent ones could be imports
                     if not module_name:
-                        module_name = source[child.start_byte:child.end_byte].decode()
+                        module_name = source[child.start_byte : child.end_byte].decode()
                     else:
                         # This is an imported name - it's a submodule or object
                         # from the module
-                        name = source[child.start_byte:child.end_byte].decode()
+                        name = source[child.start_byte : child.end_byte].decode()
                         # The full path is module_name + "." + name
                         # (since it's from module import name)
                         imports[name] = f"{module_name}.{name}"
@@ -297,16 +297,16 @@ def _extract_imports(root_node: tree_sitter.Node, source: bytes) -> dict[str, st
                         if import_item.type == "import":
                             for n in import_item.children:
                                 if n.type == "identifier":
-                                    name = source[n.start_byte:n.end_byte].decode()
+                                    name = source[n.start_byte : n.end_byte].decode()
                                     imports[name] = f"{module_name}.{name}"
                                 elif n.type == "aliased_import":
                                     orig = ""
                                     alias = ""
                                     for nn in n.children:
                                         if nn.type == "identifier" and not orig:
-                                            orig = source[nn.start_byte:nn.end_byte].decode()
+                                            orig = source[nn.start_byte : nn.end_byte].decode()
                                         elif nn.type == "identifier":
-                                            alias = source[nn.start_byte:nn.end_byte].decode()
+                                            alias = source[nn.start_byte : nn.end_byte].decode()
                                     if alias:
                                         imports[alias] = f"{module_name}.{orig}"
         for child in node.children:
@@ -333,33 +333,45 @@ def _extract_js_imports(root_node: tree_sitter.Node, source: bytes) -> dict[str,
                             while module_node and module_node.type != "string":
                                 module_node = module_node.next_sibling
                             if module_node and module_node.type == "string":
-                                module_name = source[module_node.start_byte:module_node.end_byte].decode()
-                                module_name = module_name.strip('"\'').replace('/', '.')
-                                imports[source[grandchild.start_byte:grandchild.end_byte].decode()] = module_name
+                                module_name = source[
+                                    module_node.start_byte : module_node.end_byte
+                                ].decode()
+                                module_name = module_name.strip("\"'").replace("/", ".")
+                                imports[
+                                    source[grandchild.start_byte : grandchild.end_byte].decode()
+                                ] = module_name
                         elif grandchild.type == "named_imports":
                             # import {x, y} from 'z'
                             module_node = child.next_sibling
                             while module_node and module_node.type != "string":
                                 module_node = module_node.next_sibling
                             if module_node and module_node.type == "string":
-                                module_name = source[module_node.start_byte:module_node.end_byte].decode()
-                                module_name = module_name.strip('"\'').replace('/', '.')
+                                module_name = source[
+                                    module_node.start_byte : module_node.end_byte
+                                ].decode()
+                                module_name = module_name.strip("\"'").replace("/", ".")
                                 for spec in grandchild.children:
                                     if spec.type == "import_specifier":
                                         for spec_child in spec.children:
                                             if spec_child.type == "identifier":
-                                                imports[source[spec_child.start_byte:spec_child.end_byte].decode()] = module_name
+                                                imports[
+                                                    source[
+                                                        spec_child.start_byte : spec_child.end_byte
+                                                    ].decode()
+                                                ] = module_name
                 elif child.type == "namespace_import":
                     # import * as x from 'y'
                     module_node = child.next_sibling
                     while module_node and module_node.type != "string":
                         module_node = module_node.next_sibling
                     if module_node and module_node.type == "string":
-                        module_name = source[module_node.start_byte:module_node.end_byte].decode()
-                        module_name = module_name.strip('"\'').replace('/', '.')
+                        module_name = source[module_node.start_byte : module_node.end_byte].decode()
+                        module_name = module_name.strip("\"'").replace("/", ".")
                         for grandchild in child.children:
                             if grandchild.type == "identifier":
-                                imports[source[grandchild.start_byte:grandchild.end_byte].decode()] = module_name
+                                imports[
+                                    source[grandchild.start_byte : grandchild.end_byte].decode()
+                                ] = module_name
 
         # Handle require() calls: const x = require('y')
         # Also handle destructuring: const { subtle } = require('crypto').webcrypto
@@ -368,31 +380,39 @@ def _extract_js_imports(root_node: tree_sitter.Node, source: bytes) -> dict[str,
             var_name = None
             for child in node.children:
                 if child.type == "identifier":
-                    var_name = source[child.start_byte:child.end_byte].decode()
+                    var_name = source[child.start_byte : child.end_byte].decode()
                     break
-            
+
             # Check for object pattern destructuring (const { subtle } = ...)
             if not var_name:
                 for child in node.children:
                     if child.type == "object_pattern":
                         for pattern_child in child.children:
                             if pattern_child.type == "shorthand_property_identifier_pattern":
-                                var_name = source[pattern_child.start_byte:pattern_child.end_byte].decode()
+                                var_name = source[
+                                    pattern_child.start_byte : pattern_child.end_byte
+                                ].decode()
                                 break
-            
+
             if var_name:
                 # Check for require() call on the right side
                 for child in node.children:
                     if child.type == "call_expression":
                         for grandchild in child.children:
-                            if grandchild.type == "identifier" and source[grandchild.start_byte:grandchild.end_byte].decode() == "require":
+                            if (
+                                grandchild.type == "identifier"
+                                and source[grandchild.start_byte : grandchild.end_byte].decode()
+                                == "require"
+                            ):
                                 # Find the argument
                                 for arg in child.children:
                                     if arg.type == "arguments":
                                         for arg_child in arg.children:
                                             if arg_child.type == "string":
-                                                module_name = source[arg_child.start_byte:arg_child.end_byte].decode()
-                                                module_name = module_name.strip('"\'')
+                                                module_name = source[
+                                                    arg_child.start_byte : arg_child.end_byte
+                                                ].decode()
+                                                module_name = module_name.strip("\"'")
                                                 imports[var_name] = module_name
                                                 break
                     # Also handle member expressions like require('crypto').webcrypto
@@ -402,16 +422,25 @@ def _extract_js_imports(root_node: tree_sitter.Node, source: bytes) -> dict[str,
                         if obj and obj.type == "call_expression":
                             # Check if it's require('something')
                             for gc in obj.children:
-                                if gc.type == "identifier" and source[gc.start_byte:gc.end_byte].decode() == "require":
+                                if (
+                                    gc.type == "identifier"
+                                    and source[gc.start_byte : gc.end_byte].decode() == "require"
+                                ):
                                     for arg in obj.children:
                                         if arg.type == "arguments":
                                             for arg_child in arg.children:
                                                 if arg_child.type == "string":
-                                                    module_name = source[arg_child.start_byte:arg_child.end_byte].decode()
-                                                    module_name = module_name.strip('"\'')
+                                                    module_name = source[
+                                                        arg_child.start_byte : arg_child.end_byte
+                                                    ].decode()
+                                                    module_name = module_name.strip("\"'")
                                                     if prop:
-                                                        prop_name = source[prop.start_byte:prop.end_byte].decode()
-                                                        imports[var_name] = f"{module_name}.{prop_name}"
+                                                        prop_name = source[
+                                                            prop.start_byte : prop.end_byte
+                                                        ].decode()
+                                                        imports[var_name] = (
+                                                            f"{module_name}.{prop_name}"
+                                                        )
                                                     else:
                                                         imports[var_name] = module_name
         for child in node.children:
@@ -430,10 +459,10 @@ def _resolve_name(node: tree_sitter.Node, source: bytes, imports: dict[str, str]
         while current.type == "attribute":
             attr = current.child_by_field_name("attribute")
             if attr:
-                parts.append(source[attr.start_byte:attr.end_byte].decode())
+                parts.append(source[attr.start_byte : attr.end_byte].decode())
             current = current.child_by_field_name("object")
         if current.type == "identifier":
-            base = source[current.start_byte:current.end_byte].decode()
+            base = source[current.start_byte : current.end_byte].decode()
             parts.append(base)
             parts.reverse()
             full_name = ".".join(parts)
@@ -443,7 +472,7 @@ def _resolve_name(node: tree_sitter.Node, source: bytes, imports: dict[str, str]
                 return f"{imports[parts[0]]}.{'.'.join(parts[1:])}"
             return full_name
     elif node.type == "identifier":
-        name = source[node.start_byte:node.end_byte].decode()
+        name = source[node.start_byte : node.end_byte].decode()
         if name in imports:
             return imports[name]
         return name
@@ -459,10 +488,10 @@ def _resolve_js_name(node: tree_sitter.Node, source: bytes, imports: dict[str, s
         while current.type == "member_expression":
             prop = current.child_by_field_name("property")
             if prop:
-                parts.append(source[prop.start_byte:prop.end_byte].decode())
+                parts.append(source[prop.start_byte : prop.end_byte].decode())
             current = current.child_by_field_name("object")
         if current.type == "identifier":
-            base = source[current.start_byte:current.end_byte].decode()
+            base = source[current.start_byte : current.end_byte].decode()
             parts.append(base)
             parts.reverse()
             full_name = ".".join(parts)
@@ -472,7 +501,7 @@ def _resolve_js_name(node: tree_sitter.Node, source: bytes, imports: dict[str, s
                 return f"{imports[parts[0]]}.{'.'.join(parts[1:])}"
             return full_name
     elif node.type == "identifier":
-        name = source[node.start_byte:node.end_byte].decode()
+        name = source[node.start_byte : node.end_byte].decode()
         if name in imports:
             return imports[name]
         return name
@@ -494,8 +523,8 @@ def _find_call_args(node: tree_sitter.Node, source: bytes) -> dict:
                     key_node = child_by_field_name(arg, "name")
                     val_node = child_by_field_name(arg, "value")
                     if key_node and val_node:
-                        key = source[key_node.start_byte:key_node.end_byte].decode()
-                        val = source[val_node.start_byte:val_node.end_byte].decode()
+                        key = source[key_node.start_byte : key_node.end_byte].decode()
+                        val = source[val_node.start_byte : val_node.end_byte].decode()
                         args[key] = val
     return args
 
@@ -509,7 +538,7 @@ def _find_js_call_args(node: tree_sitter.Node, source: bytes) -> list:
         if child.type == "arguments":
             for arg in child.children:
                 if arg.type != "," and arg.type != "(" and arg.type != ")":
-                    args.append(source[arg.start_byte:arg.end_byte].decode())
+                    args.append(source[arg.start_byte : arg.end_byte].decode())
     return args
 
 
@@ -521,21 +550,25 @@ def child_by_field_name(node: tree_sitter.Node, field_name: str) -> tree_sitter.
     return None
 
 
-def _get_js_string_value(node: tree_sitter.Node, source: bytes) -> str | None:
-    """Extract string value from a string node."""
-    if node.type == "string":
-        val = source[node.start_byte:node.end_byte].decode()
-        return val.strip('"\'')
-    elif node.type == "template_string":
-        val = source[node.start_byte:node.end_byte].decode()
-        return val.strip("`")
-    return None
-
-
 class PythonSourceDetector:
     """Detector for Python source files using tree-sitter."""
 
     name = "python_source"
+    title = "Python Source Detector"
+    summary = "Finds cryptographic API calls in Python source via tree-sitter AST parsing."
+    detail = (
+        "Walks the tree-sitter AST, resolves imports to fully-qualified names, and "
+        "matches call sites against a map of known crypto APIs. Key sizes and curves "
+        "are read from the call's own arguments where present."
+    )
+    typical_confidence = "confirmed"
+    inputs = [".py"]
+    detects = [
+        "cryptography.hazmat primitives (RSA, EC, Ed25519, X25519, DH, AES, ChaCha20, 3DES)",
+        "hashlib digests (MD5, SHA-1, SHA-2, SHA-3, BLAKE2)",
+        "KDFs and MACs (PBKDF2, HKDF, Scrypt, HMAC)",
+        "ssl / TLS context construction",
+    ]
     supported_extensions = [".py"]
 
     def __init__(self):
@@ -543,7 +576,6 @@ class PythonSourceDetector:
 
     def detect(self, file_path: str, content: str) -> list:
         """Detect cryptographic artifacts in a Python file."""
-        from cbomscan.detectors import RawFinding
 
         findings = []
         source_bytes = content.encode("utf-8")
@@ -580,9 +612,7 @@ class PythonSourceDetector:
                         # Deduplicate by line and symbol
                         line = node.start_point[0] + 1
                         symbol = full_name
-                        if (line, symbol) in seen:
-                            pass
-                        else:
+                        if (line, symbol) not in seen:
                             seen.add((line, symbol))
                             algo_info = CRYPTO_API_MAP[full_name].copy()
 
@@ -606,9 +636,7 @@ class PythonSourceDetector:
                                         "SECP256K1",
                                     ):
                                         if curve_name in curve_val:
-                                            algo_info["curve"] = (
-                                                curve_name.lower().replace("secp", "secp")
-                                            )
+                                            algo_info["curve"] = curve_name.lower()
                                             break
 
                             # Extract algorithm from hashlib calls like hashlib.md5()
@@ -655,6 +683,20 @@ class JavaScriptSourceDetector:
     """Detector for JavaScript/TypeScript source files using tree-sitter."""
 
     name = "javascript_source"
+    title = "JavaScript / TypeScript Source Detector"
+    summary = "Finds cryptographic API calls in JS and TS source via tree-sitter AST parsing."
+    detail = (
+        "Resolves ESM imports and require() calls, then matches Node crypto, Web Crypto "
+        "and JWT library call sites. Algorithm names are lifted from adjacent string "
+        "literals and object arguments such as { name: 'ECDSA' } or 'RS256'."
+    )
+    typical_confidence = "confirmed"
+    inputs = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"]
+    detects = [
+        "Node crypto (generateKeyPair, createSign, createECDH, createHash, createCipheriv)",
+        "Web Crypto subtle API (generateKey, sign, verify, deriveKey, digest)",
+        "JWT algorithm strings (RS256, ES256, PS512, HS256, EdDSA)",
+    ]
     supported_extensions = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"]
 
     def __init__(self):
@@ -662,7 +704,6 @@ class JavaScriptSourceDetector:
 
     def detect(self, file_path: str, content: str) -> list:
         """Detect cryptographic artifacts in a JavaScript/TypeScript file."""
-        from cbomscan.detectors import RawFinding
 
         findings = []
         source_bytes = content.encode("utf-8")
@@ -683,7 +724,9 @@ class JavaScriptSourceDetector:
                 if func_node:
                     full_name = _resolve_js_name(func_node, source_bytes, imports)
                     if full_name:
-                        self._check_js_crypto_call(full_name, node, file_path, source_bytes, imports, findings)
+                        self._check_js_crypto_call(
+                            full_name, node, file_path, source_bytes, imports, findings
+                        )
 
             for child in node.children:
                 visit(child)
@@ -698,10 +741,9 @@ class JavaScriptSourceDetector:
         file_path: str,
         source: bytes,
         imports: dict[str, str],
-        findings: list
+        findings: list,
     ):
         """Check if a JS call matches known crypto patterns."""
-        from cbomscan.detectors import RawFinding
 
         line = node.start_point[0] + 1
         args = _find_js_call_args(node, source)
@@ -719,7 +761,7 @@ class JavaScriptSourceDetector:
                     if not algo_arg:
                         # Try to extract from object literal { name: 'ECDSA', ... }
                         algo_arg = _extract_algo_from_object_arg(args[0])
-                    
+
                     # Check if pattern_info has algorithm-specific entries (like generateKey)
                     if isinstance(pattern_info, dict) and algo_arg and algo_arg in pattern_info:
                         algo_info = pattern_info[algo_arg].copy()
@@ -818,7 +860,6 @@ def _get_js_string_value_from_arg(arg_text: str, source: bytes) -> str | None:
 def _extract_algo_from_object_arg(arg_text: str) -> str | None:
     """Extract algorithm name from an object literal like { name: 'ECDSA', ... }."""
     # Look for name: 'value' or name: "value" pattern
-    import re
     match = re.search(r"name\s*:\s*['\"`]([^'\"`]+)['\"`]", arg_text)
     if match:
         return match.group(1)
